@@ -1,0 +1,49 @@
+# Line endings: every text file is stored and checked out with LF,
+# whatever core.autocrlf is set to on the contributor's machine.
+* text=auto eol=lf
+
+# Source and configuration files are always text (eol=lf inherited from above).
+*.py            text
+*.ts            text
+*.tsx           text
+*.js            text
+*.mjs           text
+*.cjs           text
+*.json          text
+*.css           text
+*.html          text
+*.md            text
+*.yml           text
+*.yaml          text
+*.sql           text
+*.toml          text
+*.svg           text
+*.txt           text
+.editorconfig   text
+.gitattributes  text
+.gitignore      text
+.env.example    text
+
+# Windows scripts need CRLF; POSIX shell scripts need LF.
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+*.ps1           text eol=crlf
+*.sh            text eol=lf
+
+# Binary assets: never normalised, never diffed as text.
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.webp          binary
+*.woff          binary
+*.woff2         binary
+*.ttf           binary
+*.eot           binary
+*.otf           binary
+*.pdf           binary
+*.zip           binary
+
+# Machine-generated lockfile: GitHub collapses it in pull request diffs.
+package-lock.json linguist-generated=true

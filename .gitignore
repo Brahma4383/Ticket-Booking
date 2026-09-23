@@ -1,0 +1,61 @@
+# Root ignore rules for the whole monorepo (frontend/ and backend/).
+# Patterns without a leading slash apply at any depth.
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+backend/myvenv/
+myvenv/
+.venv/
+venv/
+*.sqlite3
+db.sqlite3
+
+# Node
+node_modules/
+.vite/
+*.tsbuildinfo
+*.local
+coverage/
+
+# Environment files (the committed .env.example templates stay tracked)
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+dist-ssr/
+backend/staticfiles/
+backend/media/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
