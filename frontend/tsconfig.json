@@ -1,0 +1,17 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ],
+  // The real compiler settings live in the referenced projects; `files: []`
+  // means nothing is compiled from here. The alias is repeated anyway because
+  // tools that are not the compiler look for it in this file and only this
+  // file - the shadcn CLI among them, which cannot place a component without
+  // knowing what `@/` means.
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  }
+}

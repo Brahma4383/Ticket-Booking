@@ -1,0 +1,627 @@
+@import 'tailwindcss';
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* Dark mode is driven by a `.dark` class on <html>, set by `useTheme` before
+   first paint, so it can follow the OS or an explicit choice. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------
+   Design tokens — light theme.
+
+   The palette is split in two:
+   - The brand/accent scales are fixed; they read well on both themes.
+   - The semantic tokens below (canvas, surface, ink, hairline, ...) are
+     re-declared under `:root.dark`, so every utility built on them flips
+     automatically and no component needs a `dark:` class.
+
+   Every foreground/background pair in here clears 4.5:1. Where a value looks
+   arbitrary it is usually the lightest (or darkest) step that still does.
+   ------------------------------------------------------------------ */
+@theme {
+  /* Orange. The deep end carries white text — `bg-brand-600 text-white` is
+     every primary button, active tab and selected seat in the app, so 600
+     through 900 are picked for contrast against white (4.6, 6.4, 8.4, 10.6)
+     rather than for an even ramp. The light end is the hero wash and the soft
+     tints further down. Nothing between 400 and 600 may hold white text. */
+  --color-brand-50: #fff7ed;
+  --color-brand-100: #ffedd5;
+  --color-brand-200: #fed7aa;
+  --color-brand-300: #fdba74;
+  --color-brand-400: #fb923c;
+  --color-brand-500: #ef6c0a;
+  --color-brand-600: #cb4a0a;
+  --color-brand-700: #a93a0b;
+  --color-brand-800: #8a3010;
+  --color-brand-900: #6f2710;
+
+  /* Gold, for rating stars, low-stock warnings and the accent button.
+
+     Deliberately analogous to the brand — 15° apart on the wheel — rather
+     than complementary: a rating star that is not gold reads as broken, and
+     the two never sit on the same surface anyway. 600 is the only step dark
+     enough to set text in (5.0:1 on white); 400 is for dark backgrounds. */
+  --color-accent-400: #fbc02d;
+  --color-accent-500: #edaa07;
+  --color-accent-600: #9c6206;
+
+  /* The hero band and the type that sits directly on it.
+
+     These do NOT flip with the theme, and are deliberately not re-declared
+     under `:root.dark`. The band is a darkened photograph in both themes, so
+     its type stays pale and its chip stays light either way — the ink scale
+     would invert out from under them. `hero-base` is the colour behind the
+     photo, holding the headline's contrast before the image loads. */
+  --color-hero-base: #351a08;
+  --color-hero-fg: #ffffff;
+  --color-hero-fg-soft: rgb(255 255 255 / 0.9);
+  --color-hero-chip: rgb(255 255 255 / 0.95);
+  --color-hero-chip-fg: #40200a;
+
+  /* Text scale, lightest to darkest.
+
+     Warm-mixed, not neutral grey. The brand is orange, and cool blue-grey
+     type under a warm brand is the thing that makes a palette look recoloured
+     rather than designed. 400 is the lightest step that still clears 4.5:1 on
+     white, which is what the small-caps field labels need. */
+  --color-ink-400: #7f746a;
+  --color-ink-500: #635a51;
+  --color-ink-600: #453d36;
+  --color-ink-700: #2b2620;
+  --color-ink-900: #171310;
+
+  /* Backgrounds: canvas is the page, surface is a card, surface-muted is a
+     recessed fill sitting on a surface. Warm for the same reason the ink is. */
+  --color-canvas: #faf6f2;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f5efe8;
+  --color-hairline: #e6ddd2;
+
+  /* Soft brand tint + the text that goes on it. The two foregrounds are a
+     step deeper than brand-600 so they clear 4.5:1 on the tint. */
+  --color-brand-surface: #fff4e8;
+  --color-brand-border: #fbd6ab;
+  --color-brand-fg: #c2410c;
+  --color-brand-fg-strong: #a93a0b;
+
+  --color-success-surface: #ecfaf3;
+  --color-success-fg: #06694a;
+
+  /* Validation errors: a tint for the message box, a ring for the field.
+
+     Rose rather than the obvious red. A true red sits ~20° from the brand
+     orange and an error box starts reading as brand furniture; rose is 40°
+     away and stays unmistakably a warning. */
+  --color-danger-surface: #fef1f3;
+  --color-danger-border: #f6a3b3;
+  --color-danger-fg: #be123c;
+
+  /* The footer stays dark in both themes, so its type is fixed too. It used
+     to borrow ink-400, which flips — that made the footer links 4.0:1 on the
+     light theme and a different colour on the dark one, for a panel that
+     never changes. Same reasoning as the hero tokens above. */
+  --color-footer: #1a1410;
+  --color-footer-fg: #c9bdb1;
+
+  --font-sans: 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;
+
+  /* Warm-tinted rather than blue-black, so a card's shadow does not cool the
+     surface it falls on. */
+  --shadow-card: 0 1px 2px rgb(56 33 16 / 0.05), 0 8px 24px rgb(56 33 16 / 0.08);
+  --shadow-lift: 0 2px 4px rgb(56 33 16 / 0.06), 0 18px 40px rgb(56 33 16 / 0.14);
+}
+
+/* ------------------------------------------------------------------
+   Dark theme. `:root.dark` outranks `:root`, so these win wherever the
+   class is present.
+   ------------------------------------------------------------------ */
+:root.dark {
+  --color-ink-400: #948779;
+  --color-ink-500: #a49a90;
+  --color-ink-600: #c2b8ad;
+  --color-ink-700: #e0d8cf;
+  --color-ink-900: #f8f4f0;
+
+  --color-canvas: #12100d;
+  --color-surface: #1f1c18;
+  --color-surface-muted: #191612;
+  --color-hairline: #352f28;
+
+  --color-brand-surface: #2e1a0a;
+  --color-brand-border: #5c3a1c;
+  --color-brand-fg: #fdba74;
+  --color-brand-fg-strong: #fed7aa;
+
+  --color-success-surface: #0a2b1e;
+  --color-success-fg: #6ee7b7;
+
+  --color-danger-surface: #2e1218;
+  --color-danger-border: #7f2a3a;
+  --color-danger-fg: #fda4af;
+
+  --color-footer: #0c0a08;
+
+  /* Shadows need more weight to register against a dark canvas. */
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.45);
+  --shadow-lift: 0 2px 4px rgb(0 0 0 / 0.45), 0 18px 40px rgb(0 0 0 / 0.6);
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+
+    /* The hero scrim. A single warm-brown ramp rather than black plus an
+       orange tint on top: two stacked overlays over an already-orange photo
+       is what turned the band muddy. Weighted to the top, where the headline
+       sits; the light theme keeps it lighter so the photo still reads as a
+       photo under a cream page. */
+    --hero-scrim: linear-gradient(
+      to bottom,
+      rgb(38 19 7 / 0.66) 0%,
+      rgb(38 19 7 / 0.42) 40%,
+      rgb(38 19 7 / 0.3) 100%
+    );
+
+    /* The fade from the photo into the page. Spelled out per theme rather
+       than mixed from `canvas`: a `color-mix` here compiles to a fallback
+       with one theme's colour baked in, which is wrong in the other. The
+       ramp is weighted late — a long half-opaque stretch over an orange
+       photo is what read as a smear. */
+    --hero-fade: linear-gradient(
+      to bottom,
+      rgb(250 246 242 / 0) 0%,
+      rgb(250 246 242 / 0.55) 50%,
+      rgb(250 246 242 / 0.88) 78%,
+      rgb(250 246 242 / 1) 100%
+    );
+  }
+
+  :root.dark {
+    color-scheme: dark;
+
+    /* Deeper, and cooled toward black, so the band settles into the near-black
+       canvas instead of glowing above it. */
+    --hero-scrim: linear-gradient(
+      to bottom,
+      rgb(10 6 3 / 0.74) 0%,
+      rgb(10 6 3 / 0.6) 40%,
+      rgb(10 6 3 / 0.55) 100%
+    );
+
+    --hero-fade: linear-gradient(
+      to bottom,
+      rgb(18 16 13 / 0) 0%,
+      rgb(18 16 13 / 0.55) 50%,
+      rgb(18 16 13 / 0.88) 78%,
+      rgb(18 16 13 / 1) 100%
+    );
+  }
+
+  html {
+    scroll-behavior: smooth;
+    @apply font-sans;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-canvas);
+    color: var(--color-ink-600);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    @apply bg-background text-foreground;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    color: var(--color-ink-900);
+    text-wrap: balance;
+    font-weight: 700;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+  }
+  * {
+    @apply border-border outline-ring/50;
+  }
+}
+
+/* ------------------------------------------------------------------
+   Print.
+
+   Only the ticket is worth ink. Every piece of site chrome — the navbar,
+   the footer, the stepper, the back links, the action buttons under the
+   ticket — carries `print:hidden` at its own call site. What is left here
+   is the page itself.
+   ------------------------------------------------------------------ */
+@media print {
+  @page {
+    margin: 12mm;
+  }
+
+  /* Print in the light theme whatever the screen is showing. Printing dark
+     mode means a sheet of solid brown and a ticket nobody can read. */
+  :root,
+  :root.dark {
+    --color-ink-400: #7f746a;
+    --color-ink-500: #635a51;
+    --color-ink-600: #453d36;
+    --color-ink-700: #2b2620;
+    --color-ink-900: #171310;
+
+    --color-canvas: #ffffff;
+    --color-surface: #ffffff;
+    --color-surface-muted: #f5efe8;
+    --color-hairline: #d9cec1;
+
+    --color-brand-surface: #fff4e8;
+    --color-brand-border: #fbd6ab;
+    --color-brand-fg: #c2410c;
+    --color-brand-fg-strong: #a93a0b;
+
+    --color-success-surface: #ecfaf3;
+    --color-success-fg: #06694a;
+    --color-danger-surface: #fef1f3;
+    --color-danger-fg: #be123c;
+
+    /* The hero band follows the canvas back to the light theme. */
+    --hero-scrim: linear-gradient(
+      to bottom,
+      rgb(38 19 7 / 0.66) 0%,
+      rgb(38 19 7 / 0.42) 40%,
+      rgb(38 19 7 / 0.3) 100%
+    );
+    --hero-fade: linear-gradient(
+      to bottom,
+      rgb(255 255 255 / 0) 0%,
+      rgb(255 255 255 / 0.55) 50%,
+      rgb(255 255 255 / 0.88) 78%,
+      rgb(255 255 255 / 1) 100%
+    );
+
+    color-scheme: light;
+  }
+
+  html,
+  body {
+    background: #ffffff;
+  }
+
+  /* The ticket header is white type on a brand gradient. Browsers drop
+     background graphics by default, which would leave that white on white
+     and the PNR unreadable, so the fill is forced. */
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* A ticket split across two sheets is a ticket you have to staple back
+     together. The shadow goes because it renders as a grey smear. */
+  article {
+    break-inside: avoid;
+    box-shadow: none !important;
+  }
+
+  /* The screen reserves room for a sticky header and a footer that are both
+     gone by now. */
+  main {
+    padding-bottom: 0 !important;
+  }
+}
+
+@layer utilities {
+  /* The hero photo's overlay and the fade into the page below it. Both are
+     written here rather than as Tailwind gradient utilities because both
+     need to differ per theme; both variables are declared beside the other
+     theme tokens above. */
+  .hero-scrim {
+    background-image: var(--hero-scrim);
+  }
+
+  .hero-fade {
+    background-image: var(--hero-fade);
+  }
+
+  /* Hides the scrollbar on the horizontally scrollable mode tabs. */
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@theme inline {
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* ------------------------------------------------------------------
+   The shadcn bridge.
+
+   shadcn components are written against a fixed set of names — background,
+   foreground, primary, muted, border, ring — and this project was not. Rather
+   than recolour the site to shadcn's neutral palette, each of those names is
+   pointed at the token this design system already had. `bg-primary` is the
+   brand orange, `border-border` is the hairline, and a shadcn component
+   dropped in unmodified arrives already wearing the site's colours.
+
+   There is deliberately no `.dark` block below. Every value here is a
+   `var()` onto a token that is itself re-declared under `:root.dark`, so the
+   whole bridge flips with the theme on its own. A second copy would be a
+   second thing to keep in step.
+   ------------------------------------------------------------------ */
+:root {
+  --background: var(--color-canvas);
+  --foreground: var(--color-ink-900);
+
+  /* A card and a popover are both `surface`: one raised plane, whether it is
+     sitting in the page or floating over it. */
+  --card: var(--color-surface);
+  --card-foreground: var(--color-ink-900);
+  --popover: var(--color-surface);
+  --popover-foreground: var(--color-ink-900);
+
+  /* The primary button, in both themes — brand-600 is chosen to carry white
+     text, which is what `primary-foreground` has to be. */
+  --primary: var(--color-brand-600);
+  --primary-foreground: #ffffff;
+
+  /* shadcn's `secondary` and `muted` are both quiet fills on a surface; this
+     palette has one of those, and it is `surface-muted`. They differ only in
+     how loud their text is. */
+  --secondary: var(--color-surface-muted);
+  --secondary-foreground: var(--color-ink-700);
+  --muted: var(--color-surface-muted);
+  --muted-foreground: var(--color-ink-500);
+
+  /* Careful: this is shadcn's `accent` — a hover tint — and not the gold
+     `accent-400/500/600` scale above it, which is a different idea that got
+     the same word. The tint is the soft brand wash the app already uses for
+     a selected chip. */
+  --accent: var(--color-brand-surface);
+  --accent-foreground: var(--color-brand-fg-strong);
+
+  --destructive: var(--color-danger-fg);
+
+  --border: var(--color-hairline);
+  --input: var(--color-hairline);
+  --ring: var(--color-brand-500);
+
+  /* Nothing charts today. Pointed at the brand ramp so that when something
+     does, it is already in the palette rather than shadcn's greys. */
+  --chart-1: var(--color-brand-500);
+  --chart-2: var(--color-brand-700);
+  --chart-3: var(--color-accent-500);
+  --chart-4: var(--color-brand-300);
+  --chart-5: var(--color-ink-500);
+
+  /* The site has no sidebar. These exist because shadcn's own components
+     reference them, and an undefined colour renders as nothing at all. */
+  --sidebar: var(--color-surface);
+  --sidebar-foreground: var(--color-ink-700);
+  --sidebar-primary: var(--color-brand-600);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--color-surface-muted);
+  --sidebar-accent-foreground: var(--color-ink-900);
+  --sidebar-border: var(--color-hairline);
+  --sidebar-ring: var(--color-brand-500);
+
+  /* shadcn derives its whole radius scale from this one number. The app's own
+     shapes are pill-shaped or `rounded-2xl`; this is the middle ground its
+     inputs and menus sit at. */
+  --radius: 0.75rem;
+}
+
+/* ------------------------------------------------------------------
+   Motion.
+
+   One easing, one set of named animations, and a scroll-reveal system,
+   so every page moves the same way. `animate-*` utilities come from the
+   `--animate-*` tokens below; `reveal` / `reveal-group` are driven by the
+   `useReveal` hook (see `hooks/useReveal.ts`), which sets `data-revealed`
+   once the element scrolls into view. Everything here collapses to an
+   instant, static render under `prefers-reduced-motion`.
+   ------------------------------------------------------------------ */
+@theme {
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+
+  --animate-fade-in: fade-in 0.5s var(--ease-out-expo) both;
+  --animate-fade-up: fade-up 0.7s var(--ease-out-expo) both;
+  --animate-fade-down: fade-down 0.5s var(--ease-out-expo) both;
+  --animate-scale-in: scale-in 0.4s var(--ease-out-expo) both;
+  --animate-step-in: step-in 0.45s var(--ease-out-expo) both;
+  --animate-shimmer: shimmer 1.8s linear infinite;
+  --animate-float: float 7s ease-in-out infinite;
+  --animate-pulse-ring: pulse-ring 2.2s var(--ease-out-expo) infinite;
+  --animate-pop: pop 0.35s var(--ease-spring) both;
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(22px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fade-down {
+    from { opacity: 0; transform: translateY(-12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes scale-in {
+    from { opacity: 0; transform: scale(0.96); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  /* A booking step arriving: a short rise, so a wizard feels like it
+     advances rather than swaps. */
+  @keyframes step-in {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes shimmer {
+    from { background-position: -200% 0; }
+    to { background-position: 200% 0; }
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+  @keyframes pulse-ring {
+    0% { transform: scale(1); opacity: 0.6; }
+    100% { transform: scale(1.9); opacity: 0; }
+  }
+  @keyframes pop {
+    from { transform: scale(0.85); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+}
+
+@layer utilities {
+  /* Scroll reveal. Hidden until `data-revealed` lands, then rises into
+     place. `--reveal-delay` staggers siblings; the Reveal component sets
+     it from its `delay` prop. */
+  .reveal {
+    opacity: 0;
+    transform: translateY(22px);
+    transition:
+      opacity 0.7s var(--ease-out-expo),
+      transform 0.7s var(--ease-out-expo);
+    transition-delay: var(--reveal-delay, 0ms);
+  }
+  .reveal[data-revealed] {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* A revealed container whose direct children stagger in, 70ms apart.
+     Twelve steps covers every grid on the site; anything past that
+     arrives with the twelfth. */
+  .reveal-group > * {
+    opacity: 0;
+    transform: translateY(22px);
+    transition:
+      opacity 0.7s var(--ease-out-expo),
+      transform 0.7s var(--ease-out-expo);
+    transition-delay: calc(var(--reveal-delay, 0ms) + var(--stagger, 70ms) * var(--i, 0));
+  }
+  .reveal-group[data-revealed] > * {
+    opacity: 1;
+    transform: none;
+  }
+  .reveal-group > :nth-child(1) { --i: 0; }
+  .reveal-group > :nth-child(2) { --i: 1; }
+  .reveal-group > :nth-child(3) { --i: 2; }
+  .reveal-group > :nth-child(4) { --i: 3; }
+  .reveal-group > :nth-child(5) { --i: 4; }
+  .reveal-group > :nth-child(6) { --i: 5; }
+  .reveal-group > :nth-child(7) { --i: 6; }
+  .reveal-group > :nth-child(8) { --i: 7; }
+  .reveal-group > :nth-child(9) { --i: 8; }
+  .reveal-group > :nth-child(10) { --i: 9; }
+  .reveal-group > :nth-child(11) { --i: 10; }
+  .reveal-group > :nth-child(n + 12) { --i: 11; }
+
+  /* A card that lifts on hover. Transform and shadow only, so it never
+     triggers layout. */
+  .card-lift {
+    transition:
+      transform 0.3s var(--ease-out-expo),
+      box-shadow 0.3s var(--ease-out-expo),
+      border-color 0.2s ease,
+      background-color 0.2s ease;
+  }
+  .card-lift:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lift);
+  }
+
+  /* Loading placeholder with a moving sheen, in place of a flat pulse. */
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--color-surface-muted) 0%,
+      var(--color-surface) 50%,
+      var(--color-surface-muted) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.8s linear infinite;
+  }
+
+  /* Underline that draws in from the left on hover, for text links. */
+  .link-underline {
+    background-image: linear-gradient(currentColor, currentColor);
+    background-repeat: no-repeat;
+    background-position: 0 100%;
+    background-size: 0% 1.5px;
+    transition: background-size 0.3s var(--ease-out-expo);
+  }
+  .link-underline:hover,
+  .link-underline:focus-visible {
+    background-size: 100% 1.5px;
+  }
+}
+
+/* Honour the OS setting: nothing moves, everything is simply there. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .reveal,
+  .reveal-group > * {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
