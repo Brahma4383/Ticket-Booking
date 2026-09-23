@@ -1,0 +1,25 @@
+# Runtime dependencies. Install into myvenv:
+#   myvenv/Scripts/python -m pip install -r requirements.txt
+
+# Pinned to 6.0, not 6.1: Django 6.1 requires MySQL 8.4 or later and this
+# project runs against 8.0.46. Django 6.0 supports MySQL 8.0.11+ and Python
+# 3.14, so it is the version that works here. Moving back up to 6.1 means
+# upgrading the MySQL server first.
+Django==6.0.8
+djangorestframework==3.18.1
+django-cors-headers==4.9.0
+# MySQL driver. On Windows this installs from a wheel; on Linux it needs
+# libmysqlclient-dev and a C toolchain.
+mysqlclient==2.3.0
+
+# Optional: the chat assistant's AI half. The site runs without it - the
+# assistant falls back to its scripted answers - so this is not installed by
+# default. Install it, and set ANTHROPIC_API_KEY, to turn free-text
+# understanding on:
+#   myvenv/Scripts/python -m pip install anthropic
+# anthropic==1.5.0
+
+# Pulled in by the above, pinned so the environment is reproducible.
+asgiref==3.12.1
+sqlparse==0.6.0
+tzdata==2026.4
