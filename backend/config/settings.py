@@ -43,19 +43,28 @@ def load_dotenv(path):
             os.environ[key] = value
 
 
-# backend/.env - gitignored, and the place the MySQL password belongs. Copy
-# .env.example to .env and fill it in.
+# backend/.env - gitignored, and the place the MySQL password and SECRET_KEY
+# belong. Copy .env.example to .env and fill it in.
 load_dotenv(BASE_DIR / '.env')
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-w-g#dpu34!)@ac@h$0p!_=5r(dig9a)kdbt57u6fh@(^typw-0'
+# Read from the environment - backend/.env locally. The fallback is for
+# development only: it is a known value, and the django-insecure- prefix is
+# what Django's deployment check looks for. A deployment sets SECRET_KEY to
+# a long random value of its own; the tokens accounts issues are signed with
+# it, so changing it signs every device out.
+SECRET_KEY = os.environ.get(
+    'SECRET_KEY',
+    'django-insecure-93rm^eu0oxc8$oqr=4@2vuc@m27r8nx29mcv7h_@!&el(ic@54',
+)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Also from the environment, and on when unset because that is what
+# development wants. A deployment sets DEBUG=false: with it on, an error page
+# hands the settings and the traceback to whoever asked.
+DEBUG = os.environ.get('DEBUG', 'true').strip().lower() in ('1', 'true', 'yes')
 
 # Hosts this server will answer to, comma separated in the environment.
 #
