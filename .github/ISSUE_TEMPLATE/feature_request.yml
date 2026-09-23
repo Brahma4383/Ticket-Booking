@@ -1,0 +1,50 @@
+name: Feature request
+description: Propose a change or something new.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The "Not built" section of the README lists what is missing on purpose: cancellation, a payment gateway, password reset, and email or mobile verification. A request for one of those is welcome if it says how it should work, not only that it should exist.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What cannot be done today, or is harder than it should be, and who runs into it.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What should happen instead. Name the endpoint, screen or table if you can.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other ways to solve it, and why this one is better.
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part
+      description: Where the change would land. Pick "Not sure" rather than guessing.
+      options:
+        - Frontend
+        - Backend API
+        - Database schema
+        - CI or tooling
+        - Not sure
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the open and closed issues and this has not been proposed
+          required: true
+        - label: I would be willing to open a pull request for this

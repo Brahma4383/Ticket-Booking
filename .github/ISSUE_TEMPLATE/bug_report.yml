@@ -1,0 +1,69 @@
+name: Bug report
+description: Something does not behave the way the README, an app README or the code says it should.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. A security problem does not belong here: use the Security tab instead, as described in [SECURITY.md](https://github.com/Brahma4383/Ticket-Booking/blob/main/SECURITY.md).
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part
+      description: Where the problem shows up. Pick "Not sure" rather than guessing.
+      options:
+        - Frontend
+        - Backend API
+        - Database schema
+        - CI or tooling
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Start from a fresh page or a fresh request. For an API call, include the request body.
+      placeholder: |
+        1. Search buses from Pune to Mumbai for tomorrow
+        2. Open the first trip and pick seat L4
+        3. Continue to the payment step
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should have happened.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What happened instead. For an API error, paste the error envelope with its code and message.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser and operating system for the front end; Python, Node and MySQL versions for the rest. `python --version`, `node --version` and `mysql --version` print them.
+      placeholder: |
+        Browser: Chrome 130 on Windows 11
+        Python 3.14, Node 24, MySQL 8.0.46
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Terminal output from `runserver` or the browser console between triple backticks, or drag a screenshot in.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the open and closed issues and this is not already reported
+          required: true
+        - label: I can reproduce this on an up-to-date `main`

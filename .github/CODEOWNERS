@@ -1,0 +1,10 @@
+# CODEOWNERS: GitHub reads this file to decide who is asked to review a pull
+# request. Each line is a path pattern followed by the owners of everything it
+# matches, and the last matching line wins. Owners are requested as reviewers
+# automatically when a pull request touches their paths, and a ruleset can
+# require their approval ("Require review from Code Owners"). GitHub never
+# asks the author of a pull request to review it, so with one maintainer this
+# file only matters once a second contributor opens one.
+#
+# One pattern, everything, one owner.
+*       @Brahma4383
