@@ -7,7 +7,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        The "Not built" section of the README lists what is missing on purpose: cancellation, a payment gateway, password reset, and email or mobile verification. A request for one of those is welcome if it says how it should work, not only that it should exist.
+        The "Limitations" section of the README lists what is missing on purpose: a real payment gateway, SMS, email or mobile verification, return journeys and waitlist movement. A request for one of those is welcome if it says how it should work, not only that it should exist.
   - type: textarea
     id: problem
     attributes:

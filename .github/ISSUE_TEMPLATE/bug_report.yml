@@ -1,5 +1,5 @@
 name: Bug report
-description: Something does not behave the way the README, an app README or the code says it should.
+description: Something does not behave the way the README or the code says it should.
 title: "bug: "
 labels:
   - bug

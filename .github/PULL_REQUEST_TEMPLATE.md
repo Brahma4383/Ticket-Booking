@@ -12,5 +12,5 @@
 - [ ] Backend tests pass locally: from `backend/` with the virtualenv activated, `python manage.py test --settings=config.test_settings`
 - [ ] Frontend lint and build pass locally: from `frontend/`, `npm run lint` and `npm run build`
 - [ ] `.env.example` updated, with a comment, if a variable was added
-- [ ] `schema.sql`, the unmanaged models and the app README updated together if the schema changed, and "What changed" says how it was applied to MySQL
+- [ ] `schema.sql`, the unmanaged models and the README updated together if the schema changed, and "What changed" says how it was applied to MySQL
 - [ ] Title follows Conventional Commits, `type(scope): summary`; it becomes the squash commit on `main`

@@ -13,7 +13,7 @@ git clone https://github.com/Brahma4383/Ticket-Booking.git
 cd Ticket-Booking
 ```
 
-Then set up both halves. The commands are in the README under "Running it";
+Then set up both halves. The commands are in the README under "Getting started";
 in short:
 
 - Backend: create a virtualenv at `backend/myvenv`, install
@@ -104,7 +104,7 @@ issue from the footer with `Closes #12`.
 - Delete the branch. With "Automatically delete head branches" turned on,
   GitHub does it at merge time.
 - A pull request that touches `schema.sql` also updates the matching models
-  and the affected app README, and its description says how the change was
+  and the README if it describes them, and its description says how the change was
   applied to MySQL: the `ALTER` that was run, or that the database was
   dropped and `schema.sql` reapplied.
 
