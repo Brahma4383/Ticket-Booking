@@ -1,3 +1,5 @@
+import type { BookingPaymentState } from '@/types/common.types'
+
 export type HotelStep =
   | 'stays'
   | 'rooms'
@@ -110,7 +112,7 @@ export interface HotelFareBreakdown {
   total: number
 }
 
-export interface HotelBookingConfirmation {
+export interface HotelBookingConfirmation extends BookingPaymentState {
   /** Eight-character property booking id. */
   bookingId: string
   bookedAt: string
@@ -121,5 +123,10 @@ export interface HotelBookingConfirmation {
   rooms: number
   guest: GuestDetails
   fare: HotelFareBreakdown
+  /**
+   * The instrument of the payment that went through - `rider@okhdfcbank`,
+   * `Visa •••• 4242`, a bank or a wallet - or `''` while nothing has.
+   * `payment` (from `BookingPaymentState`) carries the whole record.
+   */
   paymentMethod: string
 }

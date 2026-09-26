@@ -293,7 +293,7 @@ def _create_booking_row(data, fare):
                     reference=generate_pnr(),
                     mode=Booking.BUS,
                     user_id=data.get('userId'),
-                    status=Booking.CONFIRMED,
+                    status=Booking.PENDING,
                     contact_email=data['contact']['email'],
                     contact_phone=data['contact']['phone'],
                     total_amount=fare['total'],
@@ -308,7 +308,13 @@ def _create_booking_row(data, fare):
 @transaction.atomic
 def create_booking(data):
     """
-    Take payment, reserve the seats, issue the ticket - one transaction.
+    Write the booking as `pending`, holding whatever it sells - one transaction.
+
+    No money is taken here. The payments module does that afterwards
+    (`POST /api/payments/<mode>/<reference>/`) and moves the booking to
+    `confirmed` when a payment goes through; if none does within the
+    payment window it calls `release_booking` below and closes the
+    booking as `failed`.
 
     Returns the objects the confirmation needs. Anything raised in here rolls
     the whole thing back, so a failed booking never leaves a seat half sold.
@@ -390,15 +396,10 @@ def create_booking(data):
         ),
     ])
 
-    payment = Payment.objects.create(
-        booking=booking,
-        method=data['paymentMethodId'],
-        instrument=data['paymentMethod'],
-        amount=fare['total'],
-        status=Payment.SUCCESS,
-        transaction_ref=f'TXN{secrets.token_hex(8).upper()}',
-        paid_at=timezone.now(),
-    )
+    # No payment row yet. The booking is held as `pending`; the payments
+    # module takes the money (`POST /api/payments/<mode>/<reference>/`),
+    # writes the payment row and moves the booking to `confirmed`.
+    payment = None
 
     booked_seats = list(
         bus_booking.booked_seats.select_related('seat').order_by('pk')
@@ -458,14 +459,38 @@ def list_bookings(user_id):
     )
 
 
+# ---------------------------------------------------------------------------
+# Hooks for the payments module
+#
+# `payments.services` calls these by name on whichever module sold a booking,
+# so every travel module exposes the same two. They are also what
+# `cancel_booking` below uses, so an expired hold and a cancellation agree
+# about what "back on sale" means.
+# ---------------------------------------------------------------------------
+
+def amount_due(booking_id):
+    """What the payments module charges for a bus ticket: the whole fare."""
+    return Booking.objects.values_list('total_amount', flat=True).get(pk=booking_id)
+
+
+def release_booking(booking_id):
+    """
+    Put a booking's seats back on sale.
+
+    Deleting the `bus_booking_seat` rows is what frees the seats: the row is
+    the reservation, as `booked_seat_codes` explains, so leaving them behind
+    would keep those seats sold forever. The passenger names go with them,
+    which is the trade `uq_bus_seat_per_date` forces: it admits one row per
+    seat and date whatever the booking's status, so a released seat cannot
+    keep its row.
+    """
+    BusBookingSeat.objects.filter(booking_id=booking_id).delete()
+
+
 @transaction.atomic
 def cancel_booking(user_id, reference):
     """
     Cancel a bus ticket and put its seats back on sale.
-
-    Deleting the `bus_booking_seat` rows is what frees the seats: the row is
-    the reservation, as `booked_seat_codes` explains, so leaving them behind
-    on a cancelled booking would keep those seats sold forever.
 
     The account is part of the lookup rather than checked afterwards, so a
     reference belonging to someone else is simply not found.
@@ -484,7 +509,7 @@ def cancel_booking(user_id, reference):
 
     ensure_cancellable(bus_booking.booking, bus_booking.travel_date)
 
-    BusBookingSeat.objects.filter(booking=bus_booking).delete()
+    release_booking(bus_booking.pk)
     mark_cancelled(bus_booking.booking)
 
     return bus_booking

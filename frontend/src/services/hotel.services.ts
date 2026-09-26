@@ -1,5 +1,4 @@
 import { apiGet, apiPost } from '@/services/api'
-import type { PaymentMethodId } from '@/types/common.types'
 import type {
   GuestDetails,
   HotelBookingConfirmation,
@@ -226,14 +225,12 @@ export interface ConfirmStayInput {
   query: HotelSearchQuery
   rooms: number
   guest: GuestDetails
-  /** The label shown on the payment step, e.g. `UPI` or `HDFC Bank`. */
-  paymentMethod: string
-  /** Which of the four methods that label belongs to. */
-  paymentMethodId: PaymentMethodId
 }
 
 /**
- * Takes payment, holds the rooms and issues the voucher.
+ * Makes the booking as `pending`, holding what it sells. Nothing is
+ * charged here: `payForBooking` in `payment.services` takes the money
+ * for the reference this returns and turns it `confirmed`.
  *
  * A stay is all or nothing: every night is checked before any is taken, so a
  * booking never leaves a guest holding three nights of four.
@@ -257,8 +254,6 @@ export function confirmStay(
       rooms: input.rooms,
       guests: input.query.guests,
       guest: input.guest,
-      paymentMethod: input.paymentMethod,
-      paymentMethodId: input.paymentMethodId,
     },
     signal,
   )

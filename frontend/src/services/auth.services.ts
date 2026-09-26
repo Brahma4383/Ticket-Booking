@@ -1,5 +1,10 @@
 import { apiGet, apiPost } from '@/services/api'
-import type { AuthSession, AuthUser } from '@/types/auth.types'
+import type {
+  AuthSession,
+  AuthUser,
+  PasswordResetRequested,
+  ResetLinkInfo,
+} from '@/types/auth.types'
 
 /**
  * The accounts API, under `/api/auth/`.
@@ -110,4 +115,69 @@ export function login(
  */
 export function fetchMe(signal?: AbortSignal): Promise<AuthUser> {
   return apiGet<AuthUser>('/auth/me/', undefined, signal)
+}
+
+/* ------------------------------------------------------------------
+   Forgotten passwords
+
+   Three calls, one per screen: the request form in the sign-in dialog,
+   the reset page checking its link as it opens, and that page's form.
+   The link itself arrives by email and points at `/reset-password`.
+   ------------------------------------------------------------------ */
+
+/** `error.code` for a reset link that is expired, used or not ours. */
+export const INVALID_RESET_LINK = 'invalid_reset_link'
+
+/**
+ * Email a reset link to the account behind an email or mobile number.
+ *
+ * Resolves the same way whether or not an account matched — the API will
+ * not say which, so a reset form cannot be used to find out who is
+ * registered. Throws an `ApiError` only for a malformed identifier (400) or
+ * too many requests (429, `too_many_requests`).
+ */
+export function requestPasswordReset(
+  identifier: string,
+  signal?: AbortSignal,
+): Promise<PasswordResetRequested> {
+  return apiPost<PasswordResetRequested>(
+    '/auth/password/forgot/',
+    { identifier },
+    signal,
+  )
+}
+
+/**
+ * Whether a reset link can still be used, so the page can say so before a
+ * new password has been typed twice.
+ *
+ * Throws an `ApiError` with `code: 'invalid_reset_link'` when it cannot.
+ */
+export function checkResetLink(
+  uid: string,
+  token: string,
+  signal?: AbortSignal,
+): Promise<ResetLinkInfo> {
+  return apiPost<ResetLinkInfo>('/auth/password/reset/check/', { uid, token }, signal)
+}
+
+/**
+ * Set a new password from a reset link. Answers with a session: choosing a
+ * new password signs you in, and signs every other device out.
+ *
+ * Throws an `ApiError`: `invalid_reset_link` when the link is spent, or
+ * `invalid` with `detail.password` when the password is too weak or is the
+ * current one.
+ */
+export function resetPassword(
+  uid: string,
+  token: string,
+  password: string,
+  signal?: AbortSignal,
+): Promise<AuthSession> {
+  return apiPost<AuthSession>(
+    '/auth/password/reset/',
+    { uid, token, password },
+    signal,
+  )
 }

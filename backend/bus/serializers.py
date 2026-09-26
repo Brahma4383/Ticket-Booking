@@ -19,7 +19,13 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
-from bus.models import BusSeat, BusStopPoint, Payment
+from payments.serializers import serialise_payment
+from payments.services import hold_expires_at
+
+from payments.serializers import serialise_payment
+from payments.services import hold_expires_at
+
+from bus.models import BusSeat, BusStopPoint
 
 
 # ---------------------------------------------------------------------------
@@ -227,12 +233,17 @@ def serialise_confirmation(booking, bus_booking, trip, booked_seats, payment):
         'fare': serialise_fare(
             bus_booking.seat_total, bus_booking.service_fee, bus_booking.gst,
         ),
-        # A ticket with no payment row should not exist, but a missing one
-        # must not stop the ticket rendering.
+        # Empty until the payments module has taken a payment that went
+        # through: a declined attempt does not put its instrument on the
+        # ticket. `payment` below carries every state.
         'paymentMethod': (
             (payment.instrument or payment.get_method_display())
-            if payment else ''
+            if payment is not None and payment.status == 'success' else ''
         ),
+        'payment': serialise_payment(payment, booking.currency),
+        # While the booking is pending: when its hold on the inventory runs
+        # out. Null once it is paid for or closed.
+        'holdExpiresAt': hold_expires_at(booking),
     }
 
 
@@ -326,16 +337,6 @@ class BookingCreateSerializer(serializers.Serializer):
     contact = ContactSerializer()
     boardingPointId = serializers.IntegerField(min_value=1)
     droppingPointId = serializers.IntegerField(min_value=1)
-    # The label shown on the payment step: 'UPI', 'Card', or the bank or
-    # wallet name. Stored as the payment instrument.
-    paymentMethod = serializers.CharField(max_length=100)
-    # Which of the four methods that label belongs to. The payment step knows
-    # this and should send it; until it does, the default keeps the column
-    # inside its CHECK constraint.
-    paymentMethodId = serializers.ChoiceField(
-        choices=[choice for choice, _ in Payment.METHODS],
-        required=False, default=Payment.UPI,
-    )
 
     def validate_seatIds(self, value):
         if len(set(value)) != len(value):

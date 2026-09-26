@@ -1,4 +1,4 @@
-import type { Gender } from '@/types/common.types'
+import type { BookingPaymentState, Gender } from '@/types/common.types'
 
 export type TrainStep =
   | 'trains'
@@ -138,7 +138,7 @@ export interface TrainFareBreakdown {
   total: number
 }
 
-export interface TrainBookingConfirmation {
+export interface TrainBookingConfirmation extends BookingPaymentState {
   pnr: string
   bookedAt: string
   trip: TrainTrip
@@ -149,6 +149,11 @@ export interface TrainBookingConfirmation {
   passengers: AllottedPassenger[]
   contact: TrainContact
   fare: TrainFareBreakdown
+  /**
+   * The instrument of the payment that went through - `rider@okhdfcbank`,
+   * `Visa •••• 4242`, a bank or a wallet - or `''` while nothing has.
+   * `payment` (from `BookingPaymentState`) carries the whole record.
+   */
   paymentMethod: string
   insured: boolean
   /** `Chart not prepared` until a day before departure, in real life. */

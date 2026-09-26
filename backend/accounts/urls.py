@@ -14,6 +14,19 @@ urlpatterns = [
     path('register/', views.RegisterView.as_view(), name='register'),
     path('login/', views.LoginView.as_view(), name='login'),
     path('me/', views.MeView.as_view(), name='me'),
+    # Forgotten passwords: ask for a link, check it, use it.
+    path(
+        'password/forgot/',
+        views.ForgotPasswordView.as_view(), name='password-forgot',
+    ),
+    path(
+        'password/reset/check/',
+        views.ResetPasswordCheckView.as_view(), name='password-reset-check',
+    ),
+    path(
+        'password/reset/',
+        views.ResetPasswordView.as_view(), name='password-reset',
+    ),
     # Above nothing in particular, but kept next to `me/` because it is
     # the same subject: what this account is and what it holds.
     path(

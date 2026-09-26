@@ -68,6 +68,59 @@ class RegisterSerializer(serializers.Serializer):
         return value
 
 
+def validate_identifier(value):
+    """
+    An email address or an Indian mobile number, as the sign-in box takes.
+
+    Shape only - whether an account stands behind it is the view's business,
+    and for a reset request it is deliberately never said.
+    """
+    value = value.strip()
+    if '@' in value:
+        try:
+            serializers.EmailField().run_validation(value)
+        except serializers.ValidationError:
+            raise serializers.ValidationError('Enter a valid email address.')
+        return value.lower()
+
+    digits = value.replace(' ', '').replace('-', '')
+    if digits.startswith('+91'):
+        digits = digits[3:]
+    if not (digits.isdigit() and len(digits) == 10):
+        raise serializers.ValidationError(
+            'Enter your email address or 10-digit mobile number.'
+        )
+    return digits
+
+
+class ForgotPasswordSerializer(serializers.Serializer):
+    """Body of `POST /api/auth/password/forgot/`."""
+
+    identifier = serializers.CharField(max_length=254)
+
+    def validate_identifier(self, value):
+        return validate_identifier(value)
+
+
+class ResetLinkSerializer(serializers.Serializer):
+    """The two halves of a reset link, as the reset page read them off it."""
+
+    uid = serializers.CharField(max_length=64)
+    token = serializers.CharField(max_length=128)
+
+
+class ResetPasswordSerializer(ResetLinkSerializer):
+    """
+    Body of `POST /api/auth/password/reset/`.
+
+    The password's strength is checked in the view rather than here: Django's
+    similarity validator compares it with the account's own email, and which
+    account that is only becomes known once the link has been verified.
+    """
+
+    password = serializers.CharField(max_length=128, write_only=True)
+
+
 class LoginSerializer(serializers.Serializer):
     """
     Body of `POST /api/auth/login/`.

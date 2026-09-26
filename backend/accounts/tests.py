@@ -54,7 +54,7 @@ class AccountsTestCase(TransactionTestCase):
     def register(self, **overrides):
         payload = {
             'fullName': 'A Traveller',
-            'email': 'traveller@example.com',
+            'email': 'demo@gmail.com',
             'phone': '9876543210',
             'password': 'a-good-password',
         }
@@ -66,7 +66,7 @@ class AccountsTestCase(TransactionTestCase):
 
     def login(self, **overrides):
         payload = {
-            'identifier': 'traveller@example.com',
+            'identifier': 'demo@gmail.com',
             'password': 'a-good-password',
         }
         payload.update(overrides)
@@ -86,10 +86,10 @@ class RegisterTests(AccountsTestCase):
         self.assertTrue(body['token'])
         self.assertGreater(body['expiresIn'], 0)
         self.assertEqual(body['user']['fullName'], 'A Traveller')
-        self.assertEqual(body['user']['email'], 'traveller@example.com')
+        self.assertEqual(body['user']['email'], 'demo@gmail.com')
         self.assertEqual(body['user']['phone'], '9876543210')
 
-        user = AppUser.objects.get(email='traveller@example.com')
+        user = AppUser.objects.get(email='demo@gmail.com')
         self.assertIs(user.is_active, True)
         self.assertIsNotNone(user.last_login_at)
 
@@ -107,8 +107,8 @@ class RegisterTests(AccountsTestCase):
         self.assertNotIn('passwordHash', json.dumps(body))
 
     def test_the_email_is_stored_lowercased(self):
-        self.register(email='Traveller@Example.COM')
-        self.assertEqual(AppUser.objects.get().email, 'traveller@example.com')
+        self.register(email='Demo@Gmail.COM')
+        self.assertEqual(AppUser.objects.get().email, 'demo@gmail.com')
 
     def test_a_duplicate_email_is_a_409(self):
         self.register()
@@ -120,7 +120,7 @@ class RegisterTests(AccountsTestCase):
 
     def test_a_duplicate_phone_is_a_409(self):
         self.register()
-        response = self.register(email='other@example.com')
+        response = self.register(email='demo+other@gmail.com')
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()['error']['detail']['field'], 'phone')
@@ -151,7 +151,7 @@ class LoginTests(AccountsTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['token'])
-        self.assertEqual(response.json()['user']['email'], 'traveller@example.com')
+        self.assertEqual(response.json()['user']['email'], 'demo@gmail.com')
 
     def test_signing_in_with_a_mobile_number(self):
         self.register()
@@ -160,7 +160,7 @@ class LoginTests(AccountsTestCase):
 
     def test_the_email_is_matched_case_insensitively(self):
         self.register()
-        self.assertEqual(self.login(identifier='TRAVELLER@EXAMPLE.COM').status_code, 200)
+        self.assertEqual(self.login(identifier='DEMO@GMAIL.COM').status_code, 200)
 
     def test_a_wrong_password_is_a_401(self):
         self.register()
@@ -171,7 +171,7 @@ class LoginTests(AccountsTestCase):
 
     def test_an_unknown_email_is_told_to_register(self):
         self.register()
-        response = self.login(identifier='nobody@example.com')
+        response = self.login(identifier='demo+nobody@gmail.com')
 
         # Deliberately a different answer from a wrong password, which is
         # also how an account list gets enumerated - see AccountNotFound.
@@ -189,7 +189,7 @@ class LoginTests(AccountsTestCase):
 
     def test_an_unknown_account_and_a_wrong_password_differ(self):
         self.register()
-        unknown = self.login(identifier='nobody@example.com')
+        unknown = self.login(identifier='demo+nobody@gmail.com')
         wrong = self.login(password='not-the-password')
 
         self.assertNotEqual(unknown.status_code, wrong.status_code)
@@ -216,7 +216,7 @@ class TokenTests(AccountsTestCase):
     def setUp(self):
         super().setUp()
         self.user = AppUser.objects.create(
-            full_name='A Traveller', email='traveller@example.com',
+            full_name='A Traveller', email='demo@gmail.com',
             phone='9876543210',
             password_hash=make_password('a-good-password'),
         )
@@ -229,7 +229,7 @@ class TokenTests(AccountsTestCase):
         response = self.me(issue_token(self.user))
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['email'], 'traveller@example.com')
+        self.assertEqual(response.json()['email'], 'demo@gmail.com')
 
     def test_no_token_is_a_401(self):
         response = self.me()
@@ -378,11 +378,9 @@ class BookingGateTests(AccountsTestCase):
                 'seatId': 'A1', 'name': 'A Traveller',
                 'age': '30', 'gender': 'male',
             }],
-            'contact': {'email': 'rider@example.com', 'phone': '9876543210'},
+            'contact': {'email': 'demo@gmail.com', 'phone': '9876543210'},
             'boardingPointId': self.boarding.pk,
             'droppingPointId': self.dropping.pk,
-            'paymentMethod': 'UPI',
-            'paymentMethodId': 'upi',
         }
 
     def book(self, token=None):
@@ -390,6 +388,16 @@ class BookingGateTests(AccountsTestCase):
         return self.client.post(
             reverse('bus:booking-create'),
             data=json.dumps(self.booking_payload()),
+            content_type='application/json',
+            **headers,
+        )
+
+    def pay(self, reference, token=None):
+        """Booking only holds the seat; this is what pays for it."""
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {token}'} if token else {}
+        return self.client.post(
+            reverse('payments:pay', args=['bus', reference]),
+            data=json.dumps({'method': 'upi', 'upiId': 'rider@okhdfcbank'}),
             content_type='application/json',
             **headers,
         )
@@ -425,7 +433,7 @@ class BookingGateTests(AccountsTestCase):
 
     def test_booking_with_an_expired_session_is_refused(self):
         user = AppUser.objects.create(
-            full_name='A Traveller', email='traveller@example.com',
+            full_name='A Traveller', email='demo@gmail.com',
             phone='9876543210', password_hash=make_password('a-good-password'),
         )
         token = issue_token(user)
@@ -438,7 +446,7 @@ class BookingGateTests(AccountsTestCase):
 
     def test_booking_with_an_account_works_and_records_it(self):
         user = AppUser.objects.create(
-            full_name='A Traveller', email='traveller@example.com',
+            full_name='A Traveller', email='demo@gmail.com',
             phone='9876543210', password_hash=make_password('a-good-password'),
         )
 
@@ -460,7 +468,7 @@ class BookingGateTests(AccountsTestCase):
 
     def test_a_new_account_has_an_empty_ticket_list(self):
         user = AppUser.objects.create(
-            full_name='A Traveller', email='traveller@example.com',
+            full_name='A Traveller', email='demo@gmail.com',
             phone='9876543210', password_hash=make_password('a-good-password'),
         )
 
@@ -470,7 +478,7 @@ class BookingGateTests(AccountsTestCase):
 
     def test_the_ticket_list_summarises_a_booking(self):
         user = AppUser.objects.create(
-            full_name='A Traveller', email='traveller@example.com',
+            full_name='A Traveller', email='demo@gmail.com',
             phone='9876543210', password_hash=make_password('a-good-password'),
         )
         token = issue_token(user)
@@ -491,11 +499,11 @@ class BookingGateTests(AccountsTestCase):
 
     def test_the_ticket_list_shows_only_this_accounts_bookings(self):
         mine = AppUser.objects.create(
-            full_name='A Traveller', email='traveller@example.com',
+            full_name='A Traveller', email='demo@gmail.com',
             phone='9876543210', password_hash=make_password('a-good-password'),
         )
         theirs = AppUser.objects.create(
-            full_name='Someone Else', email='other@example.com',
+            full_name='Someone Else', email='demo+other@gmail.com',
             phone='9000000003', password_hash=make_password('a-good-password'),
         )
         self.assertEqual(self.book(issue_token(mine)).status_code, 201)
@@ -510,11 +518,11 @@ class BookingGateTests(AccountsTestCase):
 
     def test_a_ticket_is_only_readable_by_the_account_that_booked_it(self):
         mine = AppUser.objects.create(
-            full_name='A Traveller', email='traveller@example.com',
+            full_name='A Traveller', email='demo@gmail.com',
             phone='9876543210', password_hash=make_password('a-good-password'),
         )
         theirs = AppUser.objects.create(
-            full_name='Someone Else', email='other@example.com',
+            full_name='Someone Else', email='demo+other@gmail.com',
             phone='9000000002', password_hash=make_password('a-good-password'),
         )
 
@@ -553,11 +561,12 @@ class BookingGateTests(AccountsTestCase):
         from bus.models import BusBookingSeat, Payment
 
         user = AppUser.objects.create(
-            full_name='A Traveller', email='traveller@example.com',
+            full_name='A Traveller', email='demo@gmail.com',
             phone='9876543210', password_hash=make_password('a-good-password'),
         )
         token = issue_token(user)
         pnr = self.book(token).json()['pnr']
+        self.assertEqual(self.pay(pnr, token).status_code, 200)
 
         self.assertEqual(BusBookingSeat.objects.count(), 1)
 
@@ -572,6 +581,8 @@ class BookingGateTests(AccountsTestCase):
         booking = self.booking_model.objects.get()
         self.assertEqual(booking.status, 'cancelled')
         self.assertIsNotNone(booking.cancelled_at)
+        # The refund is what was paid, read off the payment row.
+        self.assertEqual(Decimal(body['refundAmount']), booking.total_amount)
 
         # The seat row *is* the reservation, so the seat is only free once it
         # is gone - and the same seat can be sold again afterwards.
@@ -586,9 +597,30 @@ class BookingGateTests(AccountsTestCase):
             ['refunded'],
         )
 
+    def test_cancelling_an_unpaid_booking_refunds_nothing(self):
+        from bus.models import BusBookingSeat
+
+        user = AppUser.objects.create(
+            full_name='A Traveller', email='demo@gmail.com',
+            phone='9876543210', password_hash=make_password('a-good-password'),
+        )
+        token = issue_token(user)
+        # Booked, never paid for: still `pending`, still holding its seat.
+        pnr = self.book(token).json()['pnr']
+        self.assertEqual(BusBookingSeat.objects.count(), 1)
+
+        response = self.cancel(pnr, token)
+        self.assertEqual(response.status_code, 200)
+
+        body = response.json()
+        self.assertEqual(body['booking']['status'], 'cancelled')
+        self.assertEqual(body['refundAmount'], '0.00')
+        # The seat goes back on sale all the same.
+        self.assertEqual(BusBookingSeat.objects.count(), 0)
+
     def test_a_booking_cannot_be_cancelled_twice(self):
         user = AppUser.objects.create(
-            full_name='A Traveller', email='traveller@example.com',
+            full_name='A Traveller', email='demo@gmail.com',
             phone='9876543210', password_hash=make_password('a-good-password'),
         )
         token = issue_token(user)
@@ -604,7 +636,7 @@ class BookingGateTests(AccountsTestCase):
 
     def test_a_journey_in_the_past_cannot_be_cancelled(self):
         user = AppUser.objects.create(
-            full_name='A Traveller', email='traveller@example.com',
+            full_name='A Traveller', email='demo@gmail.com',
             phone='9876543210', password_hash=make_password('a-good-password'),
         )
         token = issue_token(user)
@@ -623,15 +655,16 @@ class BookingGateTests(AccountsTestCase):
         self.assertEqual(
             response.json()['error']['code'], 'cancellation_not_allowed',
         )
-        self.assertEqual(self.booking_model.objects.get().status, 'confirmed')
+        # Untouched: still waiting for its payment.
+        self.assertEqual(self.booking_model.objects.get().status, 'pending')
 
     def test_one_account_cannot_cancel_another_accounts_booking(self):
         mine = AppUser.objects.create(
-            full_name='A Traveller', email='traveller@example.com',
+            full_name='A Traveller', email='demo@gmail.com',
             phone='9876543210', password_hash=make_password('a-good-password'),
         )
         theirs = AppUser.objects.create(
-            full_name='Someone Else', email='other@example.com',
+            full_name='Someone Else', email='demo+other@gmail.com',
             phone='9000000004', password_hash=make_password('a-good-password'),
         )
         pnr = self.book(issue_token(mine)).json()['pnr']
@@ -642,11 +675,12 @@ class BookingGateTests(AccountsTestCase):
         # reference exists.
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()['error']['code'], 'booking_not_found')
-        self.assertEqual(self.booking_model.objects.get().status, 'confirmed')
+        # Untouched: still waiting for its payment.
+        self.assertEqual(self.booking_model.objects.get().status, 'pending')
 
     def test_cancelling_an_unknown_mode_is_a_404(self):
         user = AppUser.objects.create(
-            full_name='A Traveller', email='traveller@example.com',
+            full_name='A Traveller', email='demo@gmail.com',
             phone='9876543210', password_hash=make_password('a-good-password'),
         )
 
@@ -656,3 +690,308 @@ class BookingGateTests(AccountsTestCase):
         self.assertEqual(
             response.json()['error']['code'], 'unknown_booking_mode',
         )
+
+
+# ---------------------------------------------------------------------------
+# Forgotten passwords
+# ---------------------------------------------------------------------------
+
+import re  # noqa: E402
+from unittest import mock  # noqa: E402
+
+from django.core import mail  # noqa: E402
+from django.core.cache import cache  # noqa: E402
+from django.test import override_settings  # noqa: E402
+
+from accounts import views as account_views  # noqa: E402
+from accounts.password_reset import reset_tokens  # noqa: E402
+
+LINK = re.compile(
+    r'(http://frontend\.test/reset-password\?uid=([^&\s]+)&token=([^\s"<]+))'
+)
+
+
+@override_settings(
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    DEFAULT_FROM_EMAIL='demo@gmail.com',
+    FRONTEND_URL='http://frontend.test/',
+    PASSWORD_RESET_TIMEOUT=3600,
+)
+class PasswordResetTests(AccountsTestCase):
+    """The whole round trip: ask for a link, check it, use it."""
+
+    def setUp(self):
+        super().setUp()
+        mail.outbox = []
+        # The limits are exercised in PasswordResetThrottleTests; here they
+        # would only trip over a class of tests sharing one address.
+        for view in (
+            account_views.ForgotPasswordView,
+            account_views.ResetPasswordCheckView,
+            account_views.ResetPasswordView,
+        ):
+            original = view.throttle_classes
+            view.throttle_classes = []
+            self.addCleanup(setattr, view, 'throttle_classes', original)
+
+        self.assertEqual(self.register().status_code, 201)
+        self.user = AppUser.objects.get()
+        mail.outbox = []
+
+    # -- helpers ------------------------------------------------------------
+
+    def post(self, name, **payload):
+        return self.client.post(
+            reverse(f'accounts:{name}'),
+            data=json.dumps(payload), content_type='application/json',
+        )
+
+    def forgot(self, identifier='demo@gmail.com'):
+        return self.post('password-forgot', identifier=identifier)
+
+    def link(self):
+        """(url, uid, token) out of the last reset mail."""
+        (message,) = [m for m in mail.outbox if 'Reset your' in m.subject]
+        return LINK.search(message.body).groups()
+
+    def reset(self, uid, token, password='a-brand-new-secret'):
+        return self.post('password-reset', uid=uid, token=token, password=password)
+
+    # -- asking for a link ----------------------------------------------------
+
+    def test_an_email_gets_a_reset_link_to_the_front_end(self):
+        response = self.forgot()
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json(), {'sent': True, 'expiresInMinutes': 60})
+
+        (message,) = mail.outbox
+        self.assertEqual(message.to, ['demo@gmail.com'])
+        self.assertEqual(message.from_email, 'demo@gmail.com')
+        self.assertIn('Reset your SuryaBooker password', message.subject)
+        url, _, _ = self.link()
+        self.assertTrue(url.startswith('http://frontend.test/reset-password?'))
+        # The HTML part carries the same link, as a button.
+        html, _ = message.alternatives[0]
+        self.assertIn('Choose a new password', html)
+
+    def test_a_mobile_number_finds_the_account_and_mails_its_email(self):
+        response = self.forgot('+91 98765 43210')
+
+        self.assertEqual(response.status_code, 202)
+        (message,) = mail.outbox
+        self.assertEqual(message.to, ['demo@gmail.com'])
+
+    def test_the_email_is_matched_case_insensitively(self):
+        self.forgot('Demo@Gmail.COM')
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_an_unknown_account_gets_the_same_answer_and_no_mail(self):
+        known = self.forgot()
+        mail.outbox = []
+
+        unknown = self.forgot('demo+nobody@gmail.com')
+
+        self.assertEqual(unknown.status_code, known.status_code)
+        self.assertEqual(unknown.json(), known.json())
+        self.assertEqual(mail.outbox, [])
+
+    def test_a_deactivated_account_is_not_sent_a_link(self):
+        self.user.is_active = False
+        self.user.save(update_fields=['is_active'])
+
+        self.assertEqual(self.forgot().status_code, 202)
+        self.assertEqual(mail.outbox, [])
+
+    def test_something_that_is_neither_an_email_nor_a_mobile_is_a_400(self):
+        response = self.forgot('not an address')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('identifier', response.json()['error']['detail'])
+
+    def test_a_mail_server_failure_does_not_change_the_answer(self):
+        with mock.patch(
+            'django.core.mail.EmailMultiAlternatives.send',
+            side_effect=OSError('SMTP is down'),
+        ), self.assertLogs('accounts.password_reset', level='ERROR') as logs:
+            response = self.forgot()
+
+        self.assertEqual(response.status_code, 202)
+        # Logged by account id, never by address.
+        self.assertIn(f'account {self.user.pk}', logs.output[0])
+        self.assertNotIn('demo@gmail.com', logs.output[0])
+
+    # -- checking the link ----------------------------------------------------
+
+    def test_a_fresh_link_checks_out_with_a_masked_email(self):
+        self.forgot()
+        _, uid, token = self.link()
+
+        response = self.post('password-reset-check', uid=uid, token=token)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {
+            'valid': True,
+            'email': 'd•••o@gmail.com',
+            'firstName': 'A',
+        })
+
+    def test_a_forged_token_or_uid_is_refused(self):
+        self.forgot()
+        _, uid, token = self.link()
+
+        for bad_uid, bad_token in (
+            (uid, token[:-2] + 'zz'),
+            ('bm9wZQ', token),
+            ('!!!', token),
+            (uid, 'no-dash-here'),
+        ):
+            with self.subTest(uid=bad_uid, token=bad_token):
+                response = self.post(
+                    'password-reset-check', uid=bad_uid, token=bad_token,
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(
+                    response.json()['error']['code'], 'invalid_reset_link',
+                )
+
+    # -- using it -------------------------------------------------------------
+
+    def test_a_new_password_is_set_and_signs_in(self):
+        self.forgot()
+        _, uid, token = self.link()
+
+        response = self.reset(uid, token)
+        self.assertEqual(response.status_code, 200)
+
+        body = response.json()
+        self.assertEqual(body['user']['email'], 'demo@gmail.com')
+        me = self.client.get(
+            reverse('accounts:me'), HTTP_AUTHORIZATION=f"Bearer {body['token']}",
+        )
+        self.assertEqual(me.status_code, 200)
+
+        self.assertEqual(self.login().status_code, 401)
+        self.assertEqual(self.login(password='a-brand-new-secret').status_code, 200)
+
+        self.user.refresh_from_db()
+        self.assertTrue(check_password('a-brand-new-secret', self.user.password_hash))
+
+    def test_the_account_holder_is_told_the_password_changed(self):
+        self.forgot()
+        _, uid, token = self.link()
+        self.reset(uid, token)
+
+        changed = [m for m in mail.outbox if 'was changed' in m.subject]
+        self.assertEqual(len(changed), 1)
+        self.assertEqual(changed[0].to, ['demo@gmail.com'])
+
+    def test_a_link_works_once(self):
+        self.forgot()
+        _, uid, token = self.link()
+        self.assertEqual(self.reset(uid, token).status_code, 200)
+
+        again = self.reset(uid, token, password='yet-another-secret')
+        self.assertEqual(again.status_code, 400)
+        self.assertEqual(again.json()['error']['code'], 'invalid_reset_link')
+
+    def test_every_other_device_is_signed_out(self):
+        old_token = issue_token(self.user)
+        self.forgot()
+        _, uid, token = self.link()
+        self.reset(uid, token)
+
+        self.assertIsNone(read_token(old_token))
+
+    def test_a_link_runs_out(self):
+        self.forgot()
+        _, uid, token = self.link()
+
+        later = reset_tokens._now() + timedelta(hours=2)
+        with mock.patch.object(reset_tokens, '_now', return_value=later):
+            response = self.reset(uid, token)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error']['code'], 'invalid_reset_link')
+
+    def test_signing_in_meanwhile_retires_the_link(self):
+        self.forgot()
+        _, uid, token = self.link()
+
+        # Remembered the password after all - a second later, so the recorded
+        # sign-in time is not the one the link was made with.
+        with mock.patch(
+            'accounts.views.timezone.now',
+            return_value=timezone.now() + timedelta(seconds=5),
+        ):
+            self.assertEqual(self.login().status_code, 200)
+
+        self.assertEqual(self.reset(uid, token).status_code, 400)
+
+    def test_a_weak_password_is_refused_and_the_link_still_works(self):
+        self.forgot()
+        _, uid, token = self.link()
+
+        for weak in ('password', '12345678', 'short'):
+            with self.subTest(password=weak):
+                response = self.reset(uid, token, password=weak)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('password', response.json()['error']['detail'])
+
+        self.assertEqual(self.reset(uid, token).status_code, 200)
+
+    def test_the_current_password_is_refused(self):
+        self.forgot()
+        _, uid, token = self.link()
+
+        response = self.reset(uid, token, password='a-good-password')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(
+            'current password', response.json()['error']['detail']['password'][0],
+        )
+
+    def test_a_deactivated_account_cannot_use_its_link(self):
+        self.forgot()
+        _, uid, token = self.link()
+        self.user.is_active = False
+        self.user.save(update_fields=['is_active'])
+
+        self.assertEqual(self.reset(uid, token).status_code, 400)
+
+
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+class PasswordResetThrottleTests(AccountsTestCase):
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.register()
+
+    def forgot(self, identifier):
+        return self.client.post(
+            reverse('accounts:password-forgot'),
+            data=json.dumps({'identifier': identifier}),
+            content_type='application/json',
+        )
+
+    def test_one_account_cannot_be_flooded(self):
+        for _ in range(3):
+            self.assertEqual(self.forgot('demo@gmail.com').status_code, 202)
+
+        response = self.forgot('DEMO@gmail.com')
+        self.assertEqual(response.status_code, 429)
+
+        error = response.json()['error']
+        self.assertEqual(error['code'], 'too_many_requests')
+        self.assertIn('minutes', error['message'])
+        self.assertGreater(error['detail']['retryAfterSeconds'], 0)
+
+    def test_one_address_cannot_ask_for_many_accounts(self):
+        for index in range(5):
+            self.assertEqual(
+                self.forgot(f'demo+someone{index}@gmail.com').status_code, 202,
+            )
+
+        self.assertEqual(self.forgot('demo+someone9@gmail.com').status_code, 429)

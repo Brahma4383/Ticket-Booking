@@ -68,7 +68,7 @@ def calculate_fare(fare_brand, traveller_count, seat_total, addons):
     Note that seat charges apply on every brand. `FareBrand.freeSeat` is
     advisory in the current front end - the seat step shows a notice on Saver
     but still charges - and the server matches it rather than quietly pricing
-    differently. See the README.
+    differently.
     """
     if fare_brand is None or traveller_count == 0:
         zero = Decimal('0.00')
@@ -309,8 +309,7 @@ def _resolve_seats(flight, seat_codes):
     Worth knowing: unlike the bus schema, `flight_traveller` carries no unique
     key over (seat, date) - the travel date lives on the parent booking, which
     a single-table constraint cannot reach. These locks are therefore the only
-    thing preventing a double sale, not a second line of defence. See the
-    README.
+    thing preventing a double sale, not a second line of defence.
     """
     if not seat_codes:
         return {}
@@ -345,7 +344,7 @@ def _create_booking_row(data, fare):
                     reference=generate_reference(),
                     mode=Booking.PLANE,
                     user_id=data.get('userId'),
-                    status=Booking.CONFIRMED,
+                    status=Booking.PENDING,
                     contact_email=data['contact']['email'],
                     contact_phone=data['contact']['phone'],
                     total_amount=fare['total'],
@@ -360,7 +359,13 @@ def _create_booking_row(data, fare):
 @transaction.atomic
 def create_booking(data):
     """
-    Take payment, take the seats, issue the tickets - one transaction.
+    Write the booking as `pending`, holding whatever it sells - one transaction.
+
+    No money is taken here. The payments module does that afterwards
+    (`POST /api/payments/<mode>/<reference>/`) and moves the booking to
+    `confirmed` when a payment goes through; if none does within the
+    payment window it calls `release_booking` below and closes the
+    booking as `failed`.
 
     Returns the objects the confirmation needs. Anything raised in here rolls
     the whole thing back, so a failed booking never leaves a seat half sold.
@@ -471,15 +476,10 @@ def create_booking(data):
         ] if line is not None
     ])
 
-    payment = Payment.objects.create(
-        booking=booking,
-        method=data['paymentMethodId'],
-        instrument=data['paymentMethod'],
-        amount=fare['total'],
-        status=Payment.SUCCESS,
-        transaction_ref=f'TXN{secrets.token_hex(8).upper()}',
-        paid_at=timezone.now(),
-    )
+    # No payment row yet. The booking is held as `pending`; the payments
+    # module takes the money (`POST /api/payments/<mode>/<reference>/`),
+    # writes the payment row and moves the booking to `confirmed`.
+    payment = None
 
     # The trip goes onto the ticket as it was sold, so the seat count is the
     # one after this booking took its seats.
@@ -553,16 +553,36 @@ def list_bookings(user_id):
     )
 
 
-@transaction.atomic
-def cancel_booking(user_id, reference):
+# ---------------------------------------------------------------------------
+# Hooks for the payments module
+#
+# `payments.services` calls these by name on whichever module sold a booking,
+# so every travel module exposes the same two. They are also what
+# `cancel_booking` below uses, so an expired hold and a cancellation agree
+# about what "back on sale" means.
+# ---------------------------------------------------------------------------
+
+def amount_due(booking_id):
+    """What the payments module charges for a flight: the whole fare."""
+    return Booking.objects.values_list('total_amount', flat=True).get(pk=booking_id)
+
+
+def release_booking(booking_id):
     """
-    Cancel a flight booking and free the seats its travellers held.
+    Free the seats a booking's travellers held.
 
     Clearing `seat` is what releases them, for the reason `occupied_seat_codes`
     gives: the traveller row holding a seat *is* the reservation. The
-    travellers themselves stay, so a cancelled ticket still lists who was
-    flying.
+    travellers themselves stay, so the ticket still lists who was flying.
     """
+    FlightTraveller.objects.filter(
+        booking_id=booking_id, seat__isnull=False,
+    ).update(seat=None)
+
+
+@transaction.atomic
+def cancel_booking(user_id, reference):
+    """Cancel a flight booking and free the seats its travellers held."""
     flight_booking = (
         FlightBooking.objects
         .select_related(
@@ -577,10 +597,7 @@ def cancel_booking(user_id, reference):
 
     ensure_cancellable(flight_booking.booking, flight_booking.travel_date)
 
-    FlightTraveller.objects.filter(
-        booking=flight_booking, seat__isnull=False,
-    ).update(seat=None)
-
+    release_booking(flight_booking.pk)
     mark_cancelled(flight_booking.booking)
 
     return flight_booking

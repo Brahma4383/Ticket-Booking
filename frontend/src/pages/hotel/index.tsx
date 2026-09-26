@@ -1,9 +1,10 @@
 import { useEffect } from 'react'
 
 import { BookingLayout, PaymentStep } from '@/components'
-import { useStepHistory } from '@/hooks'
-import { confirmStay } from '@/services/hotel.services'
-import type { BookingStepMeta, PaymentMethodId } from '@/types/common.types'
+import { useCheckout, useStepHistory } from '@/hooks'
+import { calculateStayFare, confirmStay } from '@/services/hotel.services'
+import type { ConfirmStayInput } from '@/services/hotel.services'
+import type { BookingStepMeta } from '@/types/common.types'
 import type { HotelSearchQuery } from '@/types/hotel.types'
 
 import { HotelFareSummary } from './HotelFareSummary'
@@ -58,25 +59,24 @@ export function HotelBooking({
     window.scrollTo({ top: 0, behavior: 'auto' })
   }, [step])
 
-  const handlePay = async (
-    paymentMethod: string,
-    paymentMethodId: PaymentMethodId,
-  ) => {
-    if (!property || !room || !ratePlan) return
+  // What the booking is made from; its JSON is the checkout's key, so a
+  // change after a declined payment lets the held rooms go and books anew.
+  const input: ConfirmStayInput | null =
+    property && room && ratePlan
+      ? { property, room, ratePlan, query: state.query, rooms, guest }
+      : null
 
-    const result = await confirmStay({
-      property,
-      room,
-      ratePlan,
-      query: state.query,
-      rooms,
-      guest,
-      paymentMethod,
-      paymentMethodId,
-    })
+  const checkout = useCheckout('hotel', JSON.stringify(input), async () => {
+    if (!input) throw new Error('Choose a room and rate first.')
+    const booking = await confirmStay(input)
+    return { reference: booking.bookingId, holdExpiresAt: booking.holdExpiresAt }
+  })
 
-    actions.confirmed(result)
-  }
+  // A pay-at-hotel plan takes nothing online; the card or UPI is only the
+  // guarantee. The server decides the same way.
+  const amount = ratePlan?.payAtHotel
+    ? 0
+    : calculateStayFare({ ratePlan, nights, rooms }).total
 
   const summary = (
     <HotelFareSummary ratePlan={ratePlan} nights={nights} rooms={rooms} />
@@ -130,7 +130,13 @@ export function HotelBooking({
       ) : null}
 
       {step === 'payment' ? (
-        <PaymentStep onPay={handlePay} summary={summary} />
+        <PaymentStep
+          mode="hotel"
+          checkout={checkout}
+          amount={amount}
+          onPaid={actions.confirmed}
+          summary={summary}
+        />
       ) : null}
 
       {step === 'confirmation' && state.confirmation ? (

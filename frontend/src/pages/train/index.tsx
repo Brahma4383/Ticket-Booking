@@ -1,9 +1,13 @@
 import { useEffect } from 'react'
 
 import { BookingLayout, PaymentStep } from '@/components'
-import { useStepHistory } from '@/hooks'
-import { confirmTrainBooking } from '@/services/train.services'
-import type { BookingStepMeta, PaymentMethodId } from '@/types/common.types'
+import { useCheckout, useStepHistory } from '@/hooks'
+import {
+  calculateTrainFare,
+  confirmTrainBooking,
+} from '@/services/train.services'
+import type { ConfirmTrainBookingInput } from '@/services/train.services'
+import type { BookingStepMeta } from '@/types/common.types'
 import type { TrainSearchQuery } from '@/types/train.types'
 
 import { StepConfirmation } from './StepConfirmation'
@@ -58,27 +62,34 @@ export function TrainBooking({
     window.scrollTo({ top: 0, behavior: 'auto' })
   }, [step])
 
-  const handlePay = async (
-    paymentMethod: string,
-    paymentMethodId: PaymentMethodId,
-  ) => {
-    if (!trip || !classOption || !boardingStation) return
+  // What the booking is made from; its JSON is the checkout's key, so a
+  // change after a declined payment lets the held berths go and books anew.
+  const input: ConfirmTrainBookingInput | null =
+    trip && classOption && boardingStation
+      ? {
+          trip,
+          query: state.query,
+          classOption,
+          quota,
+          boardingStation,
+          passengers,
+          contact,
+          insured,
+        }
+      : null
 
-    const result = await confirmTrainBooking({
-      trip,
-      query: state.query,
-      classOption,
-      quota,
-      boardingStation,
-      passengers,
-      contact,
-      paymentMethod,
-      paymentMethodId,
-      insured,
-    })
+  const checkout = useCheckout('train', JSON.stringify(input), async () => {
+    if (!input) throw new Error('Choose a train and class first.')
+    const booking = await confirmTrainBooking(input)
+    return { reference: booking.pnr, holdExpiresAt: booking.holdExpiresAt }
+  })
 
-    actions.confirmed(result)
-  }
+  const amount = calculateTrainFare({
+    classOption,
+    quota,
+    passengerCount: passengers.length,
+    insured,
+  }).total
 
   const summary = (
     <TrainFareSummary
@@ -140,7 +151,13 @@ export function TrainBooking({
       ) : null}
 
       {step === 'payment' ? (
-        <PaymentStep onPay={handlePay} summary={summary} />
+        <PaymentStep
+          mode="train"
+          checkout={checkout}
+          amount={amount}
+          onPaid={actions.confirmed}
+          summary={summary}
+        />
       ) : null}
 
       {step === 'confirmation' && state.confirmation ? (

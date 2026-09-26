@@ -391,7 +391,7 @@ def _create_booking_row(data, fare):
                     reference=generate_booking_id(),
                     mode=Booking.CAB,
                     user_id=data.get('userId'),
-                    status=Booking.CONFIRMED,
+                    status=Booking.PENDING,
                     contact_email=data['details']['email'],
                     contact_phone=data['details']['phone'],
                     total_amount=fare['total'],
@@ -406,7 +406,13 @@ def _create_booking_row(data, fare):
 @transaction.atomic
 def create_booking(data):
     """
-    Take the advance, record the trip, issue the voucher - one transaction.
+    Write the booking as `pending`, holding whatever it sells - one transaction.
+
+    No money is taken here. The payments module does that afterwards
+    (`POST /api/payments/<mode>/<reference>/`) and moves the booking to
+    `confirmed` when a payment goes through; if none does within the
+    payment window it calls `release_booking` below and closes the
+    booking as `failed`.
 
     Returns the objects the confirmation needs. Anything raised in here rolls
     the whole thing back.
@@ -503,17 +509,10 @@ def create_booking(data):
         ] if line is not None
     ])
 
-    # Only the advance is taken online; the driver collects the balance, which
-    # is why this payment is `pay_now` and not the total.
-    payment = Payment.objects.create(
-        booking=booking,
-        method=data['paymentMethodId'],
-        instrument=data['paymentMethod'],
-        amount=fare['pay_now'],
-        status=Payment.SUCCESS,
-        transaction_ref=f'TXN{secrets.token_hex(8).upper()}',
-        paid_at=timezone.now(),
-    )
+    # No payment row yet. The booking is held as `pending`; the payments
+    # module takes the money (`POST /api/payments/<mode>/<reference>/`),
+    # writes the payment row and moves the booking to `confirmed`.
+    payment = None
 
     return (
         booking, cab_booking, option,
@@ -601,14 +600,39 @@ def list_bookings(user_id):
     )
 
 
+# ---------------------------------------------------------------------------
+# Hooks for the payments module
+#
+# `payments.services` calls these by name on whichever module sold a booking,
+# so every travel module exposes the same two.
+# ---------------------------------------------------------------------------
+
+def amount_due(booking_id):
+    """
+    Only the advance is taken online; the driver collects the balance. So
+    what the payments module charges is `pay_now`, not the total - which is
+    also all a cancellation can refund.
+    """
+    return CabBooking.objects.values_list('pay_now', flat=True).get(pk=booking_id)
+
+
+def release_booking(booking_id):
+    """
+    Nothing to release: a cab is quoted from a rate card rather than sold
+    out of a fixed pool, and a vehicle is only assigned two hours before
+    pickup. Present so the payments module can call it without asking which
+    modes hold inventory.
+    """
+    return None
+
+
 @transaction.atomic
 def cancel_booking(user_id, reference):
     """
     Cancel a cab booking.
 
-    Nothing to release: a cab is quoted from a rate card rather than sold out
-    of a fixed pool, and a vehicle is only assigned two hours before pickup.
-    The date the policy is measured against is the pickup day.
+    Nothing to release, as `release_booking` says. The date the policy is
+    measured against is the pickup day.
     """
     cab_booking = (
         CabBooking.objects

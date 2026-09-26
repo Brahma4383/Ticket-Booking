@@ -22,9 +22,11 @@ import {
   SpinnerIcon,
   TicketIcon,
   TrainIcon,
+  WalletIcon,
 } from '@/icons'
 import { cancelBooking, fetchMyBookings } from '@/services/account.services'
 import { ApiError } from '@/services/api'
+import { fetchPaymentOrder } from '@/services/payment.services'
 import type {
   BookingMode,
   BookingStatus,
@@ -33,7 +35,9 @@ import type {
 import type { NavTarget } from '@/types/home.types'
 import { cn, formatINR, formatLongDate, toInputDate } from '@/utils'
 
+import { ResumePayment } from './ResumePayment'
 import { Ticket } from './Ticket'
+import { Transactions } from './Transactions'
 
 const MODES: Record<
   BookingMode,
@@ -56,12 +60,20 @@ const STATUS: Record<BookingStatus, { label: string; className: string }> = {
     label: 'Completed',
     className: 'bg-brand-surface text-brand-fg-strong',
   },
-  pending: { label: 'Pending', className: 'bg-surface-muted text-ink-600' },
+  // Held, waiting to be paid for. Amber rather than grey: it needs doing.
+  pending: {
+    label: 'Awaiting payment',
+    className: 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
+  },
   cancelled: {
     label: 'Cancelled',
     className: 'bg-danger-surface text-danger-fg',
   },
-  failed: { label: 'Failed', className: 'bg-danger-surface text-danger-fg' },
+  // Only ever a hold that ran out unpaid - nothing was charged.
+  failed: {
+    label: 'Not completed',
+    className: 'bg-danger-surface text-danger-fg',
+  },
 }
 
 /**
@@ -115,11 +127,14 @@ function BookingCard({
   booking,
   onOpen,
   onCancel,
+  onPay,
 }: {
   booking: BookingSummary
   onOpen: () => void
   /** Omitted when this booking can no longer be cancelled. */
   onCancel?: () => void
+  /** Only for a booking still waiting to be paid for. */
+  onPay?: () => void
 }) {
   const mode = MODES[booking.mode]
   const status = STATUS[booking.status]
@@ -188,15 +203,26 @@ function BookingCard({
       {/* Outside the card's own button: a button inside a button is invalid,
           and the two actions are genuinely different - one opens the ticket,
           the other ends it. */}
-      {onCancel ? (
-        <span className="mt-2 flex justify-end px-1">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="cursor-pointer rounded-full px-3 py-1.5 text-xs font-bold text-ink-500 transition-colors hover:bg-danger-surface hover:text-danger-fg"
-          >
-            Cancel booking
-          </button>
+      {onCancel || onPay ? (
+        <span className="mt-2 flex flex-wrap justify-end gap-2 px-1">
+          {onPay ? (
+            <button
+              type="button"
+              onClick={onPay}
+              className="cursor-pointer rounded-full bg-brand-600 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-brand-700"
+            >
+              Complete payment
+            </button>
+          ) : null}
+          {onCancel ? (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="cursor-pointer rounded-full px-3 py-1.5 text-xs font-bold text-ink-500 transition-colors hover:bg-danger-surface hover:text-danger-fg"
+            >
+              Cancel booking
+            </button>
+          ) : null}
         </span>
       ) : null}
     </li>
@@ -224,11 +250,23 @@ export function Account({
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState<BookingSummary | null>(null)
   const [tab, setTab] = useState<Phase | null>(null)
+  /** Trips, or the payment history behind them. */
+  const [view, setView] = useState<'trips' | 'payments'>('trips')
+  /** The pending booking the payment form is open for, if it is. */
+  const [paying, setPaying] = useState<BookingSummary | null>(null)
+  /** Bumped to fetch the list again after something changed a booking. */
+  const [reloads, setReloads] = useState(0)
 
   /** The booking the cancel dialog is asking about, if it is open. */
   const [cancelling, setCancelling] = useState<BookingSummary | null>(null)
   const [cancelBusy, setCancelBusy] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
+  /**
+   * What was actually paid for the booking in the cancel dialog, which is
+   * what comes back: a cab's advance rather than its fare, nothing at all
+   * for a booking never paid for. Null while it is being looked up.
+   */
+  const [cancelPaid, setCancelPaid] = useState<number | null>(null)
   /** Shown above the list after a cancellation, with the refund. */
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -292,7 +330,27 @@ export function Account({
       })
 
     return () => controller.abort()
-  }, [restoring, signedIn])
+  }, [restoring, signedIn, reloads])
+
+  // The refund the cancel dialog quotes is read off the payments, not the
+  // fare - see `cancelPaid`.
+  useEffect(() => {
+    if (cancelling === null) return
+    const controller = new AbortController()
+
+    fetchPaymentOrder(cancelling.mode, cancelling.reference, controller.signal)
+      .then((order) =>
+        setCancelPaid(
+          order.payments
+            .filter((payment) => payment.status === 'success')
+            .reduce((sum, payment) => sum + payment.amount, 0),
+        ),
+      )
+      // Unknown is shown as unknown rather than guessed at.
+      .catch(() => undefined)
+
+    return () => controller.abort()
+  }, [cancelling])
 
   /**
    * A booking can be cancelled while it is live and the journey has not
@@ -321,10 +379,13 @@ export function Account({
               : row,
           ),
         )
+        const refund = Number(result.refundAmount)
         setNotice(
           `Booking ${result.booking.reference} is cancelled. ` +
-            `${formatINR(Number(result.refundAmount))} will be refunded to ` +
-            'the way you paid, within five working days.',
+            (refund > 0
+              ? `${formatINR(refund)} will be refunded to the way you paid, ` +
+                'within five working days.'
+              : 'Nothing had been charged, so there is nothing to refund.'),
         )
         setCancelling(null)
       })
@@ -334,27 +395,59 @@ export function Account({
             ? cause.message
             : 'That booking could not be cancelled. Please try again.',
         )
+        // Refused because the booking moved on - a hold that ran out, say -
+        // so the row on screen is stale.
+        setReloads((current) => current + 1)
       })
       .finally(() => setCancelBusy(false))
+  }
+
+  const openCancel = (booking: BookingSummary) => {
+    setCancelError(null)
+    setCancelPaid(null)
+    setCancelling(booking)
   }
 
   return (
     <div className="flex min-h-screen flex-col">
       <Navbar
         onAuth={requestSignIn}
-        onOpenAccount={() => setOpen(null)}
+        onOpenAccount={() => {
+          setOpen(null)
+          setPaying(null)
+        }}
         onNavigate={onNavigate}
         activeMenu="Booking"
       />
 
       <main className="flex-1">
         <Container className="py-12 sm:py-16">
-          {open ? (
+          {paying ? (
+            <ResumePayment
+              booking={paying}
+              onBack={() => {
+                setPaying(null)
+                // A hold may have run out meanwhile.
+                setReloads((current) => current + 1)
+              }}
+              onPaid={() => {
+                // Straight to the ticket it paid for, and the list behind it
+                // brought up to date.
+                setOpen(paying)
+                setPaying(null)
+                setReloads((current) => current + 1)
+              }}
+            />
+          ) : open ? (
             <Ticket
               mode={open.mode}
               reference={open.reference}
               onBack={() => setOpen(null)}
               onGoHome={onExit}
+              onCompletePayment={() => {
+                setPaying(open)
+                setOpen(null)
+              }}
             />
           ) : (
             <>
@@ -363,11 +456,48 @@ export function Account({
                 title={
                   user ? `Your trips, ${user.fullName.split(' ')[0]}` : 'Your trips'
                 }
-                description="Every ticket you have booked, split by when you travel. Open one for the full ticket."
+                description="Every ticket you have booked, split by when you travel, and every payment behind them. Open one for the full ticket."
               />
 
+              {signedIn ? (
+                <div
+                  role="group"
+                  aria-label="Show trips or payments"
+                  className="mt-8 inline-flex rounded-full bg-surface-muted p-1 ring-1 ring-hairline"
+                >
+                  {(
+                    [
+                      { id: 'trips', label: 'Trips', icon: TicketIcon },
+                      { id: 'payments', label: 'Payments', icon: WalletIcon },
+                    ] as const
+                  ).map((entry) => {
+                    const Icon = entry.icon
+                    const active = view === entry.id
+                    return (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setView(entry.id)}
+                        className={cn(
+                          'inline-flex cursor-pointer items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors',
+                          active
+                            ? 'bg-surface text-ink-900 shadow-sm ring-1 ring-hairline'
+                            : 'text-ink-500 hover:text-ink-900',
+                        )}
+                      >
+                        <Icon className="h-4 w-4" />
+                        {entry.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : null}
+
               <div className="mt-8">
-                {restoring ? (
+                {signedIn && !restoring && view === 'payments' ? (
+                  <Transactions />
+                ) : restoring ? (
                   <p className="flex items-center gap-2 text-sm text-ink-500">
                     <SpinnerIcon className="h-4 w-4 animate-spin" />
                     Checking your session…
@@ -473,10 +603,12 @@ export function Account({
                             onOpen={() => setOpen(booking)}
                             onCancel={
                               isCancellable(booking)
-                                ? () => {
-                                    setCancelError(null)
-                                    setCancelling(booking)
-                                  }
+                                ? () => openCancel(booking)
+                                : undefined
+                            }
+                            onPay={
+                              booking.status === 'pending'
+                                ? () => setPaying(booking)
                                 : undefined
                             }
                           />
@@ -512,19 +644,27 @@ export function Account({
         {cancelling ? (
           <dl className="mt-5 space-y-2 rounded-2xl bg-surface-muted p-4 text-sm">
             <div className="flex items-center justify-between gap-4">
-              <dt className="text-ink-500">Paid</dt>
+              <dt className="text-ink-500">Fare</dt>
               <dd className="font-semibold text-ink-900">
                 {formatINR(cancelling.amount)}
               </dd>
             </div>
             <div className="flex items-center justify-between gap-4">
+              <dt className="text-ink-500">Paid</dt>
+              <dd className="font-semibold text-ink-900">
+                {cancelPaid === null ? '…' : formatINR(cancelPaid)}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between gap-4">
               <dt className="text-ink-500">Refund</dt>
               <dd className="font-extrabold text-ink-900">
-                {formatINR(cancelling.amount)}
+                {cancelPaid === null ? '…' : formatINR(cancelPaid)}
               </dd>
             </div>
             <p className="pt-1 text-xs leading-relaxed text-ink-500">
-              Refunds return to the way you paid, within five working days.
+              {cancelPaid === 0
+                ? 'Nothing has been charged for this booking, so nothing is refunded.'
+                : 'Refunds return to the way you paid, within five working days.'}
             </p>
           </dl>
         ) : null}

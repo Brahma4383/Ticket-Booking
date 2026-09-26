@@ -84,7 +84,7 @@ class BusApiTestCase(TransactionTestCase):
         # quote stay open to an anonymous visitor and are exercised that way in
         # the sign-in tests at the bottom of this file.
         self.account = AppUser.objects.create(
-            full_name='A Traveller', email='traveller@example.com',
+            full_name='A Traveller', email='demo@gmail.com',
             phone='9000000001', password_hash=make_password('a-good-password'),
             is_active=True,
         )
@@ -185,11 +185,9 @@ class BusApiTestCase(TransactionTestCase):
                 }
                 for index, seat_id in enumerate(seat_ids)
             ],
-            'contact': {'email': 'rider@example.com', 'phone': '9876543210'},
+            'contact': {'email': 'demo@gmail.com', 'phone': '9876543210'},
             'boardingPointId': self.boarding.pk,
             'droppingPointId': self.dropping.pk,
-            'paymentMethod': 'HDFC Bank',
-            'paymentMethodId': 'netbanking',
         }
         payload.update(overrides)
         return payload
@@ -198,6 +196,20 @@ class BusApiTestCase(TransactionTestCase):
         return self.client.post(
             reverse('bus:booking-create'),
             data=json.dumps(self.booking_payload(**kwargs)),
+            content_type='application/json',
+        )
+
+    def pay(self, reference, **payment):
+        """
+        Pay for a booking through the payments module - by netbanking unless
+        the test says otherwise. Booking only holds the inventory now; this
+        is what turns a `pending` booking into a `confirmed` one.
+        """
+        return self.client.post(
+            reverse('payments:pay', args=['bus', reference]),
+            data=json.dumps(
+                payment or {'method': 'netbanking', 'bank': 'HDFC Bank'}
+            ),
             content_type='application/json',
         )
 
@@ -378,7 +390,7 @@ class BookingTests(BusApiTestCase):
 
         body = response.json()
         self.assertRegex(body['pnr'], r'^SB[A-Z2-9]{6}$')
-        self.assertEqual(body['status'], 'confirmed')
+        self.assertEqual(body['status'], 'pending')
         self.assertEqual(body['trip']['id'], str(self.trip.pk))
         self.assertEqual(body['query'], {
             'from': 'Mumbai', 'to': 'Pune',
@@ -391,10 +403,14 @@ class BookingTests(BusApiTestCase):
         self.assertEqual(body['contact']['phone'], '9876543210')
         self.assertEqual(body['boardingPoint']['id'], str(self.boarding.pk))
         self.assertEqual(body['fare']['total'], 2168)
-        self.assertEqual(body['paymentMethod'], 'HDFC Bank')
+        # Nothing has been paid yet: the payments module does that next.
+        self.assertEqual(body['paymentMethod'], '')
+        self.assertIsNone(body['payment'])
+        self.assertIsNotNone(body['holdExpiresAt'])
 
     def test_a_booking_writes_every_row_the_schema_expects(self):
         pnr = self.book(seat_ids=('L1', 'L2')).json()['pnr']
+        self.assertEqual(self.pay(pnr).status_code, 200)
 
         booking = Booking.objects.get(reference=pnr)
         self.assertEqual(booking.mode, 'bus')
@@ -522,12 +538,47 @@ class BookingTests(BusApiTestCase):
         response = self.client.post(
             reverse('bus:booking-create'),
             data=json.dumps(self.booking_payload(
-                contact={'email': 'rider@example.com', 'phone': '12345'},
+                contact={'email': 'demo@gmail.com', 'phone': '12345'},
             )),
             content_type='application/json',
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn('contact', response.json()['error']['detail'])
+
+
+class PaymentTests(BusApiTestCase):
+    """The hand-off to the payments module, seen from this side."""
+
+    def test_a_new_booking_waits_for_payment(self):
+        body = self.book().json()
+
+        self.assertEqual(body['status'], 'pending')
+        self.assertIsNone(body['payment'])
+        self.assertIsNotNone(body['holdExpiresAt'])
+        self.assertEqual(
+            Booking.objects.get(reference=body['pnr']).payments.count(), 0,
+        )
+
+    def test_paying_confirms_the_booking_and_prints_the_payment(self):
+        created = self.book().json()
+
+        response = self.pay(created['pnr'])
+        self.assertEqual(response.status_code, 200)
+
+        body = response.json()
+        self.assertEqual(body['booking']['pnr'], created['pnr'])
+        self.assertEqual(body['booking']['status'], 'confirmed')
+        self.assertEqual(body['booking']['paymentMethod'], 'HDFC Bank')
+        self.assertIsNone(body['booking']['holdExpiresAt'])
+        self.assertEqual(body['booking']['payment'], body['payment'])
+
+        self.assertEqual(body['payment']['status'], 'success')
+        self.assertEqual(body['payment']['method'], 'netbanking')
+        self.assertEqual(body['payment']['instrument'], 'HDFC Bank')
+        self.assertTrue(body['payment']['transactionRef'].startswith('TXN'))
+        self.assertIsNotNone(body['payment']['paidAt'])
+        # The whole fare is taken online.
+        self.assertEqual(body['payment']['amount'], created['fare']['total'])
 
 
 class BookingLookupTests(BusApiTestCase):
@@ -606,7 +657,7 @@ class BookingSummaryTests(BusApiTestCase):
         self.assertEqual(self.book().status_code, 201)
 
         stranger = AppUser.objects.create(
-            full_name='Someone Else', email='other-summary@example.com',
+            full_name='Someone Else', email='demo+summary@gmail.com',
             phone='9000009199', password_hash='x',
         )
         self.assertEqual(list(services.list_bookings(stranger.pk)), [])

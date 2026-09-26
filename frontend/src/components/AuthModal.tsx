@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/Button'
 import { TextField } from '@/components/Field'
@@ -9,6 +9,7 @@ import { BRAND } from '@/constants'
 import { useAuth, useAuthDialog } from '@/hooks/useAuth'
 import { useFormValidation } from '@/hooks/useFormValidation'
 import {
+  ArrowLeftIcon,
   EyeIcon,
   EyeOffIcon,
   InfoIcon,
@@ -19,7 +20,10 @@ import {
   UserIcon,
 } from '@/icons'
 import { ApiError } from '@/services/api'
-import { ACCOUNT_NOT_FOUND } from '@/services/auth.services'
+import {
+  ACCOUNT_NOT_FOUND,
+  requestPasswordReset,
+} from '@/services/auth.services'
 import type { AuthMode } from '@/types/auth.types'
 import { cn } from '@/utils'
 import type { FormErrors } from '@/utils/validation'
@@ -45,6 +49,12 @@ const COPY: Record<AuthMode, { title: string; subtitle: string; cta: string }> =
       subtitle: 'One account for buses, trains, flights, hotels and cabs.',
       cta: 'Create account',
     },
+    forgot: {
+      title: 'Forgot your password?',
+      subtitle:
+        'Enter the email or mobile number on your account and we will email you a link to choose a new one.',
+      cta: 'Email me a reset link',
+    },
   }
 
 interface AuthValues {
@@ -67,10 +77,14 @@ const EMPTY: AuthValues = {
  * A sign-up opened from "you have not registered yet" starts with whatever
  * was typed into the sign-in box, dropped into whichever field it belongs in.
  * Retyping it is the one thing someone in that position has already done.
+ *
+ * The log-in tab has one box for both, so coming back to it from the reset
+ * form puts the email or mobile straight into that.
  */
-function initialValues(prefill: string): AuthValues {
+function initialValues(prefill: string, mode: AuthMode): AuthValues {
   const trimmed = prefill.trim()
   if (!trimmed) return EMPTY
+  if (mode === 'login') return { ...EMPTY, email: trimmed }
 
   const digits = trimmed.replace(/[\s-]/g, '')
   return /^\d{10}$/.test(digits)
@@ -106,17 +120,22 @@ function AuthForm({
   mode,
   prefill,
   onRegisterInstead,
+  onForgot,
 }: {
   mode: AuthMode
   /** Carried over when the sign-in box sent them here to register. */
   prefill: string
   /** Switches to the sign-up tab, keeping what they typed. */
   onRegisterInstead: (identifier: string) => void
+  /** Switches to the reset form, keeping the email or mobile typed. */
+  onForgot: (identifier: string) => void
 }) {
   const { login, register } = useAuth()
   const isLogin = mode === 'login'
 
-  const [values, setValues] = useState<AuthValues>(() => initialValues(prefill))
+  const [values, setValues] = useState<AuthValues>(() =>
+    initialValues(prefill, mode),
+  )
   const [showPassword, setShowPassword] = useState(false)
   const [pending, setPending] = useState(false)
   // A failed sign-in says one of two things. An identifier nobody has
@@ -202,7 +221,7 @@ function AuthForm({
         name="email"
         type={isLogin ? 'text' : 'email'}
         autoComplete={isLogin ? 'username' : 'email'}
-        placeholder={isLogin ? 'you@example.com or 98765 43210' : 'you@example.com'}
+        placeholder={isLogin ? 'demo@gmail.com or 98765 43210' : 'demo@gmail.com'}
         value={values.email}
         onChange={(event) => set('email')(event.target.value)}
         error={fieldError('email') ?? serverErrors.identifier}
@@ -262,6 +281,13 @@ function AuthForm({
             />
             Keep me signed in
           </label>
+          <button
+            type="button"
+            onClick={() => onForgot(values.email)}
+            className="cursor-pointer rounded-full px-1 text-sm font-semibold text-brand-fg transition-colors hover:text-brand-fg-strong hover:underline focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:outline-none"
+          >
+            Forgot password?
+          </button>
         </div>
       ) : (
         <div>
@@ -333,6 +359,185 @@ function AuthForm({
   )
 }
 
+/** How long "Send again" waits, so a double-click is not two emails. */
+const RESEND_AFTER_SECONDS = 30
+
+/**
+ * "Email me a reset link": one field, then a confirmation in its place.
+ *
+ * The confirmation is worded the same whether or not an account matched,
+ * because the API answers the same either way — a reset form must not be a
+ * way to find out who is registered. The link itself opens `/reset-password`.
+ */
+function ForgotForm({
+  prefill,
+  onBack,
+}: {
+  /** Whatever was in the log-in box when "Forgot password?" was pressed. */
+  prefill: string
+  /** Back to the log-in tab, carrying the identifier. */
+  onBack: (identifier: string) => void
+}) {
+  const [identifier, setIdentifier] = useState(prefill.trim())
+  const [pending, setPending] = useState(false)
+  /** The identifier the last link went to, once one has. */
+  const [sentTo, setSentTo] = useState<string | null>(null)
+  const [minutes, setMinutes] = useState(60)
+  const [cooldown, setCooldown] = useState(0)
+  const [failure, setFailure] = useState<string | null>(null)
+  const [serverError, setServerError] = useState<string | undefined>()
+
+  const { errors, submit } = useFormValidation({ identifier }, (values) =>
+    collectErrors([['identifier', emailOrMobile(values.identifier)]]),
+  )
+
+  // One tick a second while "Send again" is waiting.
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const timer = window.setTimeout(() => setCooldown((left) => left - 1), 1000)
+    return () => window.clearTimeout(timer)
+  }, [cooldown])
+
+  const send = async () => {
+    if (pending) return
+    setPending(true)
+    setFailure(null)
+
+    const target = identifier.trim()
+    try {
+      const result = await requestPasswordReset(target)
+      setSentTo(target)
+      setMinutes(result.expiresInMinutes)
+      setCooldown(RESEND_AFTER_SECONDS)
+    } catch (error) {
+      if (error instanceof ApiError) {
+        const field = error.fieldErrors().identifier
+        // A field message goes under the field; anything else - too many
+        // requests, a dead server - in the box below the button.
+        setServerError(field)
+        setFailure(field ? null : error.message)
+      } else {
+        setFailure('Something went wrong. Try again.')
+      }
+    } finally {
+      setPending(false)
+    }
+  }
+
+  const failureBox = failure ? (
+    <div
+      role="alert"
+      className="flex items-start gap-2 rounded-2xl bg-danger-surface px-4 py-3 text-sm text-danger-fg"
+    >
+      <InfoIcon className="mt-0.5 h-4 w-4 shrink-0" />
+      <span>{failure}</span>
+    </div>
+  ) : null
+
+  const back = (
+    <button
+      type="button"
+      onClick={() => onBack(sentTo ?? identifier)}
+      className="inline-flex cursor-pointer items-center gap-1.5 rounded-full px-1 text-sm font-semibold text-ink-500 transition-colors hover:text-ink-900 focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:outline-none"
+    >
+      <ArrowLeftIcon className="h-4 w-4" />
+      Back to log in
+    </button>
+  )
+
+  if (sentTo !== null) {
+    return (
+      <div className="mt-5 space-y-4">
+        <div
+          role="status"
+          className="rounded-2xl bg-brand-surface px-4 py-4 text-sm text-brand-fg-strong ring-1 ring-brand-border"
+        >
+          <div className="flex items-start gap-3">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-600 text-white">
+              <MailIcon className="h-4 w-4" />
+            </span>
+            <div>
+              <p className="font-bold">Check your inbox</p>
+              <p className="mt-1 leading-relaxed">
+                If an account matches{' '}
+                <span className="font-semibold break-words">{sentTo}</span>, we
+                have emailed it a link to choose a new password. The link works
+                once, for the next {minutes} minutes.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <p className="text-sm text-ink-500">
+          Nothing after a few minutes? Check your spam folder, make sure it is
+          the email or mobile you signed up with, then send it again.
+        </p>
+
+        {failureBox}
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {back}
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={pending || cooldown > 0}
+            onClick={() => void send()}
+          >
+            {pending ? (
+              <span className="inline-flex items-center gap-2">
+                <SpinnerIcon className="h-4 w-4 animate-spin" />
+                Sending
+              </span>
+            ) : cooldown > 0 ? (
+              `Send again in ${cooldown}s`
+            ) : (
+              'Send again'
+            )}
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <form
+      className="mt-5 space-y-3"
+      onSubmit={submit(() => void send())}
+      noValidate
+    >
+      <TextField
+        label="Email or mobile"
+        icon={MailIcon}
+        name="identifier"
+        autoComplete="username"
+        placeholder="demo@gmail.com or 98765 43210"
+        value={identifier}
+        onChange={(event) => {
+          setServerError(undefined)
+          setIdentifier(event.target.value)
+        }}
+        error={errors.identifier ?? serverError}
+        autoFocus
+      />
+
+      <Button type="submit" size="lg" fullWidth className="mt-2" disabled={pending}>
+        {pending ? (
+          <span className="inline-flex items-center gap-2">
+            <SpinnerIcon className="h-4 w-4 animate-spin" />
+            Sending link
+          </span>
+        ) : (
+          COPY.forgot.cta
+        )}
+      </Button>
+
+      {failureBox}
+
+      <div className="pt-1">{back}</div>
+    </form>
+  )
+}
+
 /**
  * The sign-in dialog.
  *
@@ -353,39 +558,51 @@ export function AuthModal() {
       title={copy.title}
       subtitle={copy.subtitle}
     >
-      <Tabs
-        value={mode ?? 'login'}
-        onValueChange={(value) => setMode(value as AuthMode)}
-        className="gap-0"
-      >
-        <TabsList
-          aria-label="Authentication mode"
-          className="grid h-auto w-full grid-cols-2 gap-1 rounded-full bg-surface-muted p-1"
-        >
-          {(['login', 'signup'] as AuthMode[]).map((value) => (
-            <TabsTrigger
-              key={value}
-              value={value}
-              className={cn(
-                'h-auto cursor-pointer rounded-full border-0 px-4 py-2 text-sm font-semibold text-ink-500 transition-colors after:hidden',
-                'hover:text-ink-900 focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:outline-none',
-                'data-active:bg-surface data-active:text-ink-900 data-active:shadow-card dark:data-active:border-0 dark:data-active:bg-surface',
-              )}
-            >
-              {value === 'login' ? 'Log in' : 'Sign up'}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
-
-      {mode ? (
-        <AuthForm
-          key={mode}
-          mode={mode}
+      {mode === 'forgot' ? (
+        // Not a tab: it is a detour from logging in, and "Back to log in"
+        // is the way out of it.
+        <ForgotForm
           prefill={prefill}
-          onRegisterInstead={(identifier) => setMode('signup', identifier)}
+          onBack={(identifier) => setMode('login', identifier)}
         />
-      ) : null}
+      ) : (
+        <>
+          <Tabs
+            value={mode ?? 'login'}
+            onValueChange={(value) => setMode(value as AuthMode)}
+            className="gap-0"
+          >
+            <TabsList
+              aria-label="Authentication mode"
+              className="grid h-auto w-full grid-cols-2 gap-1 rounded-full bg-surface-muted p-1"
+            >
+              {(['login', 'signup'] as AuthMode[]).map((value) => (
+                <TabsTrigger
+                  key={value}
+                  value={value}
+                  className={cn(
+                    'h-auto cursor-pointer rounded-full border-0 px-4 py-2 text-sm font-semibold text-ink-500 transition-colors after:hidden',
+                    'hover:text-ink-900 focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:outline-none',
+                    'data-active:bg-surface data-active:text-ink-900 data-active:shadow-card dark:data-active:border-0 dark:data-active:bg-surface',
+                  )}
+                >
+                  {value === 'login' ? 'Log in' : 'Sign up'}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+
+          {mode ? (
+            <AuthForm
+              key={mode}
+              mode={mode}
+              prefill={prefill}
+              onRegisterInstead={(identifier) => setMode('signup', identifier)}
+              onForgot={(identifier) => setMode('forgot', identifier)}
+            />
+          ) : null}
+        </>
+      )}
     </Modal>
   )
 }

@@ -1,9 +1,10 @@
 import { useEffect } from 'react'
 
 import { BookingLayout, PaymentStep } from '@/components'
-import { useStepHistory } from '@/hooks'
-import { confirmBooking } from '@/services/bus.services'
-import type { BookingStepMeta, PaymentMethodId } from '@/types/common.types'
+import { useCheckout, useStepHistory } from '@/hooks'
+import { calculateFare, confirmBooking } from '@/services/bus.services'
+import type { ConfirmBookingInput } from '@/services/bus.services'
+import type { BookingStepMeta } from '@/types/common.types'
 import type { BusSearchQuery } from '@/types/bus.types'
 
 import { FareSummary } from './FareSummary'
@@ -54,26 +55,27 @@ export function BusBooking({
     window.scrollTo({ top: 0, behavior: 'auto' })
   }, [step])
 
-  const handlePay = async (
-    paymentMethod: string,
-    paymentMethodId: PaymentMethodId,
-  ) => {
-    if (!trip || !boardingPoint || !droppingPoint) return
+  // What the booking is made from. Its JSON is the checkout's key: change a
+  // seat or a name after a declined payment and the held booking is let go
+  // and a new one made, rather than paying for the old selection.
+  const input: ConfirmBookingInput | null =
+    trip && boardingPoint && droppingPoint
+      ? {
+          trip,
+          query: state.query,
+          seats,
+          passengers,
+          contact,
+          boardingPoint,
+          droppingPoint,
+        }
+      : null
 
-    const result = await confirmBooking({
-      trip,
-      query: state.query,
-      seats,
-      passengers,
-      contact,
-      boardingPoint,
-      droppingPoint,
-      paymentMethod,
-      paymentMethodId,
-    })
-
-    actions.confirmed(result)
-  }
+  const checkout = useCheckout('bus', JSON.stringify(input), async () => {
+    if (!input) throw new Error('Choose a bus and seats first.')
+    const booking = await confirmBooking(input)
+    return { reference: booking.pnr, holdExpiresAt: booking.holdExpiresAt }
+  })
 
   return (
     <BookingLayout
@@ -121,7 +123,13 @@ export function BusBooking({
       ) : null}
 
       {step === 'payment' ? (
-        <PaymentStep onPay={handlePay} summary={<FareSummary seats={seats} />} />
+        <PaymentStep
+          mode="bus"
+          checkout={checkout}
+          amount={calculateFare(seats).total}
+          onPaid={actions.confirmed}
+          summary={<FareSummary seats={seats} />}
+        />
       ) : null}
 
       {step === 'confirmation' && confirmation ? (

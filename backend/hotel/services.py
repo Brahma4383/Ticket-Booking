@@ -389,7 +389,7 @@ def _create_booking_row(data, fare):
                     reference=generate_booking_id(),
                     mode=Booking.HOTEL,
                     user_id=data.get('userId'),
-                    status=Booking.CONFIRMED,
+                    status=Booking.PENDING,
                     contact_email=data['guest']['email'],
                     contact_phone=data['guest']['phone'],
                     total_amount=fare['total'],
@@ -404,7 +404,13 @@ def _create_booking_row(data, fare):
 @transaction.atomic
 def create_booking(data):
     """
-    Take payment, hold the rooms, issue the voucher - one transaction.
+    Write the booking as `pending`, holding whatever it sells - one transaction.
+
+    No money is taken here. The payments module does that afterwards
+    (`POST /api/payments/<mode>/<reference>/`) and moves the booking to
+    `confirmed` when a payment goes through; if none does within the
+    payment window it calls `release_booking` below and closes the
+    booking as `failed`.
 
     Returns the objects the confirmation needs. Anything raised in here rolls
     the whole thing back, so a failed booking never leaves a night held.
@@ -477,15 +483,10 @@ def create_booking(data):
         ),
     ])
 
-    payment = Payment.objects.create(
-        booking=booking,
-        method=data['paymentMethodId'],
-        instrument=data['paymentMethod'],
-        amount=fare['total'],
-        status=Payment.SUCCESS,
-        transaction_ref=f'TXN{secrets.token_hex(8).upper()}',
-        paid_at=timezone.now(),
-    )
+    # No payment row yet. The booking is held as `pending`; the payments
+    # module takes the money (`POST /api/payments/<mode>/<reference>/`),
+    # writes the payment row and moves the booking to `confirmed`.
+    payment = None
 
     hotel_booking.property = stay
     hotel_booking.rate_plan = rate_plan
@@ -589,6 +590,52 @@ def _release_inventory(room, nights, rooms):
         RoomInventory.objects.bulk_update(rows, ['rooms_available'])
 
 
+# ---------------------------------------------------------------------------
+# Hooks for the payments module
+#
+# `payments.services` calls these by name on whichever module sold a booking,
+# so every travel module exposes the same two. They are also what
+# `cancel_booking` below uses, so an expired hold and a cancellation agree
+# about what "back on sale" means.
+# ---------------------------------------------------------------------------
+
+def amount_due(booking_id):
+    """
+    What the payments module charges for a stay online.
+
+    The whole amount, unless the rate plan is pay-at-hotel: then the guest
+    settles at the property, as the fare summary promises, and nothing is
+    taken now. The payment step still records the instrument as a
+    guarantee, as a zero-amount payment.
+    """
+    hotel_booking = (
+        HotelBooking.objects
+        .select_related('booking', 'rate_plan')
+        .get(pk=booking_id)
+    )
+    if hotel_booking.rate_plan.pay_at_hotel:
+        return Decimal('0.00')
+    return hotel_booking.booking.total_amount
+
+
+def release_booking(booking_id):
+    """Return a booking's rooms to inventory for every night it held."""
+    hotel_booking = (
+        HotelBooking.objects
+        .select_related('room_type')
+        .filter(pk=booking_id)
+        .first()
+    )
+    if hotel_booking is None:
+        return
+
+    nights = [
+        hotel_booking.check_in + timedelta(days=offset)
+        for offset in range(hotel_booking.nights)
+    ]
+    _release_inventory(hotel_booking.room_type, nights, hotel_booking.rooms)
+
+
 @transaction.atomic
 def cancel_booking(user_id, reference):
     """
@@ -608,12 +655,7 @@ def cancel_booking(user_id, reference):
 
     ensure_cancellable(hotel_booking.booking, hotel_booking.check_out)
 
-    nights = [
-        hotel_booking.check_in + timedelta(days=offset)
-        for offset in range(hotel_booking.nights)
-    ]
-    _release_inventory(hotel_booking.room_type, nights, hotel_booking.rooms)
-
+    release_booking(hotel_booking.pk)
     mark_cancelled(hotel_booking.booking)
 
     return hotel_booking

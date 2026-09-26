@@ -1,3 +1,5 @@
+import type { BookingPaymentState } from '@/types/common.types'
+
 export type PlaneStep =
   | 'flights'
   | 'travellers'
@@ -179,7 +181,7 @@ export interface TicketedTraveller extends FlightTraveller {
   eTicket: string
 }
 
-export interface PlaneBookingConfirmation {
+export interface PlaneBookingConfirmation extends BookingPaymentState {
   /** Six-character airline booking reference. */
   reference: string
   bookedAt: string
@@ -190,5 +192,10 @@ export interface PlaneBookingConfirmation {
   contact: FlightContact
   addOns: AddOnId[]
   fare: PlaneFareBreakdown
+  /**
+   * The instrument of the payment that went through - `rider@okhdfcbank`,
+   * `Visa •••• 4242`, a bank or a wallet - or `''` while nothing has.
+   * `payment` (from `BookingPaymentState`) carries the whole record.
+   */
   paymentMethod: string
 }

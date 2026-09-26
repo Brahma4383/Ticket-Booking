@@ -18,7 +18,10 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
-from cab.models import CabExtra, Payment
+from payments.serializers import serialise_payment
+from payments.services import hold_expires_at
+
+from cab.models import CabExtra
 
 
 # ---------------------------------------------------------------------------
@@ -152,12 +155,17 @@ def serialise_confirmation(booking, cab_booking, option, extra_rows, payment):
             'payNow': money(cab_booking.pay_now),
             'payToDriver': money(cab_booking.pay_to_driver),
         },
-        # A booking with no payment row should not exist, but a missing one
-        # must not stop the voucher rendering.
+        # Empty until the payments module has taken a payment that went
+        # through: a declined attempt does not put its instrument on the
+        # ticket. `payment` below carries every state.
         'paymentMethod': (
             (payment.instrument or payment.get_method_display())
-            if payment else ''
+            if payment is not None and payment.status == 'success' else ''
         ),
+        'payment': serialise_payment(payment, booking.currency),
+        # While the booking is pending: when its hold on the inventory runs
+        # out. Null once it is paid for or closed.
+        'holdExpiresAt': hold_expires_at(booking),
         # Beyond CabBookingConfirmation: the schema carries these and they are
         # filled in two hours before pickup, so the voucher can poll for them
         # rather than only showing ARRIVAL_BUFFER_NOTE.
@@ -233,16 +241,6 @@ class BookingCreateSerializer(serializers.Serializer):
     extras = serializers.ListField(
         child=serializers.CharField(max_length=20),
         allow_empty=True, max_length=len(CabExtra.CODES), default=list,
-    )
-    # The label shown on the payment step: 'UPI', 'Card', or the bank or
-    # wallet name. Stored as the payment instrument.
-    paymentMethod = serializers.CharField(max_length=100)
-    # Which of the four methods that label belongs to. The payment step knows
-    # this and should send it; until it does, the default keeps the column
-    # inside its CHECK constraint.
-    paymentMethodId = serializers.ChoiceField(
-        choices=[choice for choice, _ in Payment.METHODS],
-        required=False, default=Payment.UPI,
     )
 
     def validate_extras(self, value):

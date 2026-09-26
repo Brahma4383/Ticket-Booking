@@ -1,5 +1,4 @@
 import { apiGet, apiPost } from '@/services/api'
-import type { PaymentMethodId } from '@/types/common.types'
 import type {
   CabBookingConfirmation,
   CabExtra,
@@ -256,14 +255,12 @@ export interface ConfirmCabInput {
   query: CabSearchQuery
   details: CabTripDetails
   extras: CabExtraId[]
-  /** The label shown on the payment step, e.g. `UPI` or `HDFC Bank`. */
-  paymentMethod: string
-  /** Which of the four methods that label belongs to. */
-  paymentMethodId: PaymentMethodId
 }
 
 /**
- * Takes the advance and records the trip.
+ * Makes the booking as `pending`, holding what it sells. Nothing is
+ * charged here: `payForBooking` in `payment.services` takes the money
+ * for the reference this returns and turns it `confirmed`.
  *
  * The estimate is not sent: distance, duration, trip type and the night flag
  * are worked out from the addresses and the pickup time on the server,
@@ -293,8 +290,6 @@ export function confirmCab(
         email: input.details.email,
       },
       extras: input.extras,
-      paymentMethod: input.paymentMethod,
-      paymentMethodId: input.paymentMethodId,
     },
     signal,
   )

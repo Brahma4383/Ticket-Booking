@@ -1,6 +1,8 @@
 export { useFormValidation } from './useFormValidation'
 export { AuthProvider, useAuth, useAuthDialog } from './useAuth'
 export { ChatProvider, useChat, useOpenChat } from './useChat'
+export { useCheckout } from './useCheckout'
+export type { CheckoutSession } from './useCheckout'
 export { useReveal } from './useReveal'
 export { useScrolled } from './useScrolled'
 export { useStepHistory } from './useStepHistory'

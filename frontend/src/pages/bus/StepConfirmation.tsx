@@ -1,8 +1,7 @@
-import { Button } from '@/components'
+import { Button, TicketPayment, TicketStatusHeader } from '@/components'
 import { BRAND } from '@/constants'
 import {
   ArrowRightIcon,
-  CheckIcon,
   MapPinIcon,
   PrinterIcon,
   TicketIcon,
@@ -26,30 +25,27 @@ export function StepConfirmation({
   booking,
   onBookAnother,
   onGoHome,
+  onCompletePayment,
 }: {
   booking: BookingConfirmation
   onBookAnother: () => void
   onGoHome: () => void
+  /** Offered on a ticket that is still waiting to be paid for. */
+  onCompletePayment?: () => void
 }) {
   const { trip, query, seats, passengers, fare } = booking
 
   return (
     <div className="mx-auto max-w-3xl">
-      {/* Screen state, not ticket content: a printed ticket does not
-          need congratulating, and this is half a page of it. */}
-      <div className="text-center print:hidden">
-        <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-          <CheckIcon className="h-7 w-7" />
-        </span>
-        <h1 className="mt-4 text-2xl sm:text-3xl">Your seats are booked</h1>
-        <p className="mt-2 text-sm text-ink-500">
-          A copy of this ticket has been sent to{' '}
-          <span className="font-semibold text-ink-700">
-            {booking.contact.email}
-          </span>
-          .
-        </p>
-      </div>
+      {/* Screen state, not ticket content: what the booking is waiting
+          for, or that it is done. Hidden when printing. */}
+      <TicketStatusHeader
+        status={booking.status}
+        confirmedTitle="Your seats are booked"
+        email={booking.contact.email}
+        holdExpiresAt={booking.holdExpiresAt}
+        onCompletePayment={onCompletePayment}
+      />
 
       {/* Ticket */}
       <article className="mt-8 overflow-hidden rounded-3xl bg-surface shadow-lift ring-1 ring-hairline">
@@ -103,9 +99,14 @@ export function StepConfirmation({
                 trip.kind === 'sleeper' ? 'Sleeper' : 'Seater'
               } (${trip.layout})`}
             />
-            <Detail label="Paid with" value={booking.paymentMethod} />
-            <Detail label="Total paid" value={formatINR(fare.total)} />
+            <Detail label="Paid with" value={booking.paymentMethod || 'Not paid yet'} />
+            <Detail
+              label={booking.status === 'pending' ? 'Total due' : 'Total paid'}
+              value={formatINR(fare.total)}
+            />
           </dl>
+
+          <TicketPayment payment={booking.payment} />
 
           <div className="mt-6 grid gap-5 border-t border-hairline pt-6 sm:grid-cols-2">
             {[

@@ -97,6 +97,7 @@ INSTALLED_APPS = [
     'accounts',
     'contact',
     'chat',
+    'payments',
 
     'bus',
     'train',
@@ -114,6 +115,9 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Puts the inventory of unpaid, expired bookings back on sale between
+    # runs of `manage.py expire_payments`. See payments/middleware.py.
+    'payments.middleware.ExpireHoldsMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -249,6 +253,17 @@ REST_FRAMEWORK = {
         # that falls through to the model costs money. Read by
         # `chat.views.ChatThrottle`.
         'chat': os.environ.get('CHAT_RATE_LIMIT', '30/hour'),
+        # Forgotten passwords. Asking for a link sends mail, so it is limited
+        # twice: per client address, and per account so one inbox cannot be
+        # flooded from many. Checking and using a link is limited per address.
+        # Read by the throttles in `accounts.views`.
+        'password_reset': os.environ.get('PASSWORD_RESET_RATE_LIMIT', '5/hour'),
+        'password_reset_target': os.environ.get(
+            'PASSWORD_RESET_ACCOUNT_RATE_LIMIT', '3/hour',
+        ),
+        'password_reset_confirm': os.environ.get(
+            'PASSWORD_RESET_CONFIRM_RATE_LIMIT', '30/hour',
+        ),
     },
 }
 
@@ -277,11 +292,27 @@ EMAIL_BACKEND = (
 )
 
 DEFAULT_FROM_EMAIL = os.environ.get(
-    'DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'no-reply@suryabooker.in',
+    'DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'demo@gmail.com',
 )
 
 #: Where a contact form message is delivered.
-CONTACT_INBOX = os.environ.get('CONTACT_INBOX', 'owner@shubhamtanks.com')
+CONTACT_INBOX = os.environ.get('CONTACT_INBOX', 'demo@gmail.com')
+
+
+# Forgotten passwords - see accounts/password_reset.py.
+#
+# The reset link in the email points at the front end, and is built from this
+# setting rather than from the request: a forged Host header must never be
+# able to send a traveller a reset link to someone else's site. Set it to the
+# address the site is actually served from.
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
+
+# How long a reset link works, in seconds. Django's own setting, read by its
+# token generator; an hour rather than its default of three days, because a
+# link sitting in an inbox is a key to the account for as long as it lasts.
+PASSWORD_RESET_TIMEOUT = 60 * int(
+    os.environ.get('PASSWORD_RESET_TIMEOUT_MINUTES', '60'),
+)
 
 
 # The support assistant behind the chat bubble.
@@ -299,6 +330,23 @@ ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 CHAT_AI_KEY = ANTHROPIC_API_KEY
 
 CHAT_AI_MODEL = os.environ.get('CHAT_AI_MODEL', 'claude-opus-5')
+
+
+# Payments.
+#
+# A booking holds its inventory - seats, berths, room nights - from the
+# moment it is made until it is paid for. This is how long that hold lasts:
+# an unpaid booking older than this is closed as `failed` and its inventory
+# put back on sale, by `payments.services.expire_stale`. Fifteen minutes is
+# what the railways and most airlines give.
+
+PAYMENT_HOLD_MINUTES = int(os.environ.get('PAYMENT_HOLD_MINUTES', '15'))
+
+# How often, at most, ordinary API traffic sweeps for expired holds. Between
+# sweeps a lapsed hold can keep its seats for up to this long.
+PAYMENT_SWEEP_INTERVAL_SECONDS = int(
+    os.environ.get('PAYMENT_SWEEP_INTERVAL_SECONDS', '30'),
+)
 
 
 # CORS - the Vite dev server runs on its own origin.

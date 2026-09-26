@@ -1,5 +1,4 @@
 import { apiGet, apiPost } from '@/services/api'
-import type { PaymentMethodId } from '@/types/common.types'
 import type {
   AddOn,
   AddOnId,
@@ -231,14 +230,12 @@ export interface ConfirmFlightBookingInput {
   seatByTraveller: Record<string, string>
   addOns: AddOnId[]
   contact: FlightContact
-  /** The label shown on the payment step, e.g. `UPI` or `HDFC Bank`. */
-  paymentMethod: string
-  /** Which of the four methods that label belongs to. */
-  paymentMethodId: PaymentMethodId
 }
 
 /**
- * Takes payment, takes the seats and issues the tickets.
+ * Makes the booking as `pending`, holding what it sells. Nothing is
+ * charged here: `payForBooking` in `payment.services` takes the money
+ * for the reference this returns and turns it `confirmed`.
  *
  * The seat total is not sent: the server prices the seats it actually
  * assigns, so a client cannot understate it.
@@ -267,8 +264,6 @@ export function confirmFlightBooking(
       seatByTraveller: input.seatByTraveller,
       addOns: input.addOns,
       contact: input.contact,
-      paymentMethod: input.paymentMethod,
-      paymentMethodId: input.paymentMethodId,
     },
     signal,
   )

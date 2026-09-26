@@ -1,4 +1,4 @@
-import type { Gender } from '@/types/common.types'
+import type { BookingPaymentState, Gender } from '@/types/common.types'
 
 /** Where the traveller is in the booking wizard. */
 export type BookingStep =
@@ -108,7 +108,7 @@ export interface FareBreakdown {
   total: number
 }
 
-export interface BookingConfirmation {
+export interface BookingConfirmation extends BookingPaymentState {
   pnr: string
   bookedAt: string
   trip: BusTrip
@@ -119,6 +119,16 @@ export interface BookingConfirmation {
   boardingPoint: StopPoint
   droppingPoint: StopPoint
   fare: FareBreakdown
+  /**
+   * The instrument of the payment that went through - `rider@okhdfcbank`,
+   * `Visa •••• 4242`, a bank or a wallet - or `''` while nothing has.
+   * `payment` (from `BookingPaymentState`) carries the whole record.
+   */
+  /**
+   * The instrument of the payment that went through - `rider@okhdfcbank`,
+   * `Visa •••• 4242`, a bank or a wallet - or `''` while nothing has.
+   * `payment` (from `BookingPaymentState`) carries the whole record.
+   */
   paymentMethod: string
 }
 

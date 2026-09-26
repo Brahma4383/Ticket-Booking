@@ -1,15 +1,17 @@
-import type { FormEvent, ReactNode } from 'react'
-import { useState } from 'react'
+import type { ChangeEvent, ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/Button'
 import { TextField } from '@/components/Field'
 import { SelectField } from '@/components/Select'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import type { CheckoutSession } from '@/hooks/useCheckout'
 import { useAuth } from '@/hooks/useAuth'
-import { ApiError } from '@/services/api'
+import { useFormValidation } from '@/hooks/useFormValidation'
 import {
   BankIcon,
   CardIcon,
+  ClockIcon,
   InfoIcon,
   LockIcon,
   ShieldIcon,
@@ -18,8 +20,32 @@ import {
   UserIcon,
   WalletIcon,
 } from '@/icons'
-import type { IconComponent, PaymentMethodId } from '@/types/common.types'
-import { cn } from '@/utils'
+import { ApiError } from '@/services/api'
+import {
+  BANKS,
+  METHOD_LABELS,
+  SANDBOX_NOTES,
+  WALLETS,
+  formatClock,
+  payForBooking,
+} from '@/services/payment.services'
+import type { BookingMode } from '@/types/account.types'
+import type {
+  IconComponent,
+  PaymentMethodId,
+  PaymentRequest,
+  PendingOrder,
+} from '@/types/common.types'
+import { cn, formatINR } from '@/utils'
+import {
+  cardCvv,
+  cardExpiry,
+  cardName,
+  cardNumber,
+  collectErrors,
+  upiId,
+} from '@/utils/validation'
+import type { FormErrors } from '@/utils/validation'
 
 interface Method {
   id: PaymentMethodId
@@ -35,33 +61,135 @@ const METHODS: Method[] = [
   { id: 'wallet', label: 'Wallet', hint: 'Paytm, Amazon Pay', icon: WalletIcon },
 ]
 
-const BANKS = [
-  'State Bank of India',
-  'HDFC Bank',
-  'ICICI Bank',
-  'Axis Bank',
-  'Kotak Mahindra Bank',
-  'Punjab National Bank',
-]
-
-const WALLETS = ['Paytm', 'Amazon Pay', 'PhonePe Wallet', 'Mobikwik']
-
-const METHOD_LABEL: Record<PaymentMethodId, string> = {
-  upi: 'UPI',
-  card: 'Card',
-  netbanking: 'Netbanking',
-  wallet: 'Wallet',
+interface FormValues {
+  method: PaymentMethodId
+  upiId: string
+  cardNumber: string
+  cardName: string
+  cardExpiry: string
+  cardCvv: string
+  bank: string
+  wallet: string
 }
 
-interface PaymentStepProps {
+const INITIAL: FormValues = {
+  method: 'upi',
+  upiId: '',
+  cardNumber: '',
+  cardName: '',
+  cardExpiry: '',
+  cardCvv: '',
+  bank: BANKS[0],
+  wallet: WALLETS[0],
+}
+
+/** Only the chosen method's fields are checked. */
+function validate(values: FormValues): FormErrors {
+  if (values.method === 'upi') {
+    return collectErrors([['upiId', upiId(values.upiId)]])
+  }
+  if (values.method === 'card') {
+    return collectErrors([
+      ['cardNumber', cardNumber(values.cardNumber)],
+      ['cardName', cardName(values.cardName)],
+      ['cardExpiry', cardExpiry(values.cardExpiry)],
+      ['cardCvv', cardCvv(values.cardCvv)],
+    ])
+  }
+  return {}
+}
+
+/** What goes over the wire: the chosen method's field and nothing else. */
+function toRequest(values: FormValues): PaymentRequest {
+  switch (values.method) {
+    case 'upi':
+      return { method: 'upi', upiId: values.upiId.trim() }
+    case 'card':
+      return {
+        method: 'card',
+        card: {
+          number: values.cardNumber.replace(/\s/g, ''),
+          name: values.cardName.trim(),
+          expiry: values.cardExpiry.trim(),
+          cvv: values.cardCvv.trim(),
+        },
+      }
+    case 'netbanking':
+      return { method: 'netbanking', bank: values.bank }
+    case 'wallet':
+      return { method: 'wallet', wallet: values.wallet }
+  }
+}
+
+/** `4242424242424242` -> `4242 4242 4242 4242`, as it is typed. */
+function groupCardNumber(raw: string) {
+  return raw
+    .replace(/\D/g, '')
+    .slice(0, 19)
+    .replace(/(\d{4})(?=\d)/g, '$1 ')
+}
+
+/** `1239` -> `12/39`, as it is typed. */
+function formatExpiry(raw: string) {
+  const digits = raw.replace(/\D/g, '').slice(0, 4)
+  return digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits
+}
+
+/** `mm:ss` left until `iso`, ticking once a second; null without one. */
+function useRemaining(iso: string | null) {
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!iso) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [iso])
+
+  if (!iso) return null
+  const seconds = Math.max(
+    0,
+    Math.floor((new Date(iso).getTime() - now) / 1000),
+  )
+  return {
+    seconds,
+    label: `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`,
+  }
+}
+
+type Phase = 'idle' | 'holding' | 'paying'
+
+interface Failure {
+  message: string
+  /** The declined attempt's reference, for quoting to support. */
+  transactionRef?: string
+}
+
+interface PaymentStepProps<T> {
+  /** Which module sold the booking — the payment is made against it. */
+  mode: BookingMode
   /**
-   * `methodLabel` is what the ticket prints — `UPI`, `Card`, or the bank or
-   * wallet chosen. `methodId` is which of the four methods that is, which the
-   * API stores separately: `payment.method` only admits the four, and the
-   * label goes in `payment.instrument`.
+   * Makes, or reuses, the pending booking to pay for. From `useCheckout` in
+   * a booking flow; a fixed order when resuming one from the account page.
    */
-  onPay: (methodLabel: string, methodId: PaymentMethodId) => Promise<void>
+  checkout: CheckoutSession
+  /**
+   * What will be charged online, for the button. A cab takes only its
+   * advance; a pay-at-hotel stay takes nothing now. The server decides for
+   * real — this is only the label.
+   */
+  amount: number
+  /** Handed the mode's own confirmation, now `confirmed`, once paid. */
+  onPaid: (booking: T) => void
   summary: ReactNode
+  /** Shown instead of "Payment". */
+  title?: string
+  /** A booking that already exists, for its hold countdown. */
+  initialOrder?: PendingOrder | null
+  /**
+   * Called instead of offering to book afresh when the hold has run out.
+   * For resuming a booking, where there is no selection to book again from.
+   */
+  onExpired?: () => void
 }
 
 /**
@@ -124,46 +252,101 @@ function SignInRequired({ summary }: { summary: ReactNode }) {
 }
 
 /**
- * Payment form shared by every booking flow.
+ * Payment form shared by every booking flow, and by the account page's
+ * "complete payment".
+ *
+ * Paying is two calls, made one after the other on a single press:
+ *
+ * 1. `checkout.prepare()` makes the booking as `pending`, which holds its
+ *    inventory for a quarter of an hour — or reuses the one already made, on
+ *    a retry.
+ * 2. `payForBooking` asks the gateway. Approved, the booking is `confirmed`
+ *    and its ticket comes back; declined, the attempt is on record, the
+ *    booking stays held, and the form stays up for another try.
  *
  * Renders the sign-in gate instead when nobody is logged in. The API refuses
  * an anonymous booking with a 401 regardless - this is so a traveller is
  * asked rather than rejected.
  */
-export function PaymentStep({ onPay, summary }: PaymentStepProps) {
+export function PaymentStep<T>({
+  mode,
+  checkout,
+  amount,
+  onPaid,
+  summary,
+  title = 'Payment',
+  initialOrder = null,
+  onExpired,
+}: PaymentStepProps<T>) {
   const { signedIn, restoring, requestSignIn } = useAuth()
-  const [method, setMethod] = useState<PaymentMethodId>('upi')
-  const [bank, setBank] = useState(BANKS[0])
-  const [wallet, setWallet] = useState(WALLETS[0])
-  const [processing, setProcessing] = useState(false)
-  const [failure, setFailure] = useState<string | null>(null)
+  const [values, setValues] = useState<FormValues>(INITIAL)
+  const [phase, setPhase] = useState<Phase>('idle')
+  const [failure, setFailure] = useState<Failure | null>(null)
+  const [order, setOrder] = useState<PendingOrder | null>(initialOrder)
+  const { errors, submit } = useFormValidation(values, validate)
+  const remaining = useRemaining(order?.holdExpiresAt ?? null)
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (processing) return
+  const set =
+    (field: keyof FormValues, format?: (raw: string) => string) =>
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const next = format ? format(event.target.value) : event.target.value
+      setValues((current) => ({ ...current, [field]: next }))
+    }
 
-    setProcessing(true)
+  const pay = async () => {
+    if (phase !== 'idle') return
     setFailure(null)
-    const detail =
-      method === 'netbanking'
-        ? bank
-        : method === 'wallet'
-          ? wallet
-          : METHOD_LABEL[method]
 
     try {
-      await onPay(detail, method)
+      setPhase('holding')
+      const held = await checkout.prepare()
+      setOrder(held)
+
+      setPhase('paying')
+      const result = await payForBooking<T>(mode, held.reference, toRequest(values))
+      checkout.discard()
+      onPaid(result.booking)
     } catch (error) {
-      if (error instanceof ApiError) {
-        setFailure(error.message)
+      if (!(error instanceof ApiError)) {
+        setFailure({
+          message: 'Something went wrong taking the payment. Try again.',
+        })
+      } else if (error.code === 'payment_declined') {
+        setFailure({
+          message: error.message,
+          transactionRef:
+            typeof error.detail?.transactionRef === 'string'
+              ? error.detail.transactionRef
+              : undefined,
+        })
+      } else if (error.code === 'payment_expired') {
+        // The hold is gone. Forget it, so the next press books afresh -
+        // provided the seats are still there to book.
+        checkout.discard()
+        setOrder(null)
+        if (onExpired) {
+          onExpired()
+          return
+        }
+        setFailure({
+          message:
+            'The time to pay ran out and your selection was released. Press ' +
+            'pay again to book it afresh, if it is still available.',
+        })
+      } else if (error.isConflict) {
+        setFailure({
+          message:
+            `${error.message} If you already started paying for this, you ` +
+            'will find it under My trips, ready to complete.',
+        })
+      } else {
+        setFailure({ message: error.message })
         // The session ran out between filling the form in and paying. Ask
         // rather than leaving them on a page that will not work.
         if (error.needsSignIn) requestSignIn('login')
-      } else {
-        setFailure('Something went wrong taking the payment. Try again.')
       }
     } finally {
-      setProcessing(false)
+      setPhase('idle')
     }
   }
 
@@ -172,24 +355,63 @@ export function PaymentStep({ onPay, summary }: PaymentStepProps) {
   // already is.
   if (!signedIn && !restoring) return <SignInRequired summary={summary} />
 
+  const busy = phase !== 'idle'
+  const chargesNothing = amount <= 0
+
   return (
-    <form onSubmit={handleSubmit}>
-      <h1 className="text-xl sm:text-2xl">Payment</h1>
+    <form onSubmit={submit(() => void pay())} noValidate>
+      <h1 className="text-xl sm:text-2xl">{title}</h1>
       <p className="mt-1 text-sm text-ink-500">
-        Choose how you would like to pay.
+        {chargesNothing
+          ? 'Nothing is charged now. Choose how to guarantee the booking.'
+          : 'Choose how you would like to pay.'}
       </p>
+
+      {order && remaining ? (
+        <p
+          role="status"
+          className={cn(
+            'mt-4 flex items-start gap-2 rounded-2xl px-4 py-3 text-sm',
+            remaining.seconds > 60
+              ? 'bg-brand-surface text-brand-fg-strong'
+              : 'bg-danger-surface text-danger-fg',
+          )}
+        >
+          <ClockIcon className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            {remaining.seconds > 0 ? (
+              <>
+                Held for you until{' '}
+                <span className="font-semibold">
+                  {formatClock(order.holdExpiresAt ?? '')}
+                </span>{' '}
+                &middot; <span className="tabular-nums">{remaining.label}</span>{' '}
+                left to pay. Reference{' '}
+                <span className="font-mono font-semibold">{order.reference}</span>.
+              </>
+            ) : (
+              'The hold on this booking has run out.'
+            )}
+          </span>
+        </p>
+      ) : null}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_340px]">
         <section className="min-w-0 rounded-3xl bg-surface p-5 shadow-card ring-1 ring-hairline sm:p-6">
           <RadioGroup
-            value={method}
-            onValueChange={(next) => setMethod(next as PaymentMethodId)}
+            value={values.method}
+            onValueChange={(next) =>
+              setValues((current) => ({
+                ...current,
+                method: next as PaymentMethodId,
+              }))
+            }
             aria-label="Payment method"
             className="grid gap-3 sm:grid-cols-2"
           >
             {METHODS.map((entry) => {
               const Icon = entry.icon
-              const active = method === entry.id
+              const active = values.method === entry.id
 
               return (
                 <label
@@ -226,28 +448,29 @@ export function PaymentStep({ onPay, summary }: PaymentStepProps) {
           </RadioGroup>
 
           <div className="mt-6 border-t border-hairline pt-6">
-            {method === 'upi' ? (
+            {values.method === 'upi' ? (
               <TextField
                 label="UPI ID"
                 icon={UpiIcon}
                 placeholder="yourname@bank"
-                pattern="[\w.\-]{2,}@[\w]{2,}"
-                title="Enter a UPI ID such as yourname@okhdfcbank"
-                required
+                autoComplete="off"
+                value={values.upiId}
+                onChange={set('upiId')}
+                error={errors.upiId}
               />
             ) : null}
 
-            {method === 'card' ? (
+            {values.method === 'card' ? (
               <div className="grid gap-3 sm:grid-cols-2">
                 <TextField
                   label="Card number"
                   icon={CardIcon}
                   inputMode="numeric"
                   placeholder="0000 0000 0000 0000"
-                  pattern="[0-9 ]{12,23}"
-                  title="Enter a card number"
                   autoComplete="cc-number"
-                  required
+                  value={values.cardNumber}
+                  onChange={set('cardNumber', groupCardNumber)}
+                  error={errors.cardNumber}
                   wrapperClassName="sm:col-span-2"
                 />
                 <TextField
@@ -255,58 +478,73 @@ export function PaymentStep({ onPay, summary }: PaymentStepProps) {
                   icon={UserIcon}
                   placeholder="As embossed"
                   autoComplete="cc-name"
-                  required
+                  value={values.cardName}
+                  onChange={set('cardName')}
+                  error={errors.cardName}
                 />
                 <div className="grid grid-cols-2 gap-3">
                   <TextField
                     label="Expiry"
+                    inputMode="numeric"
                     placeholder="MM/YY"
-                    pattern="(0[1-9]|1[0-2])\/[0-9]{2}"
-                    title="MM/YY"
                     autoComplete="cc-exp"
-                    required
+                    value={values.cardExpiry}
+                    onChange={set('cardExpiry', formatExpiry)}
+                    error={errors.cardExpiry}
                   />
                   <TextField
                     label="CVV"
                     type="password"
                     inputMode="numeric"
                     placeholder="***"
-                    pattern="[0-9]{3,4}"
-                    title="3 or 4 digits"
+                    maxLength={4}
                     autoComplete="cc-csc"
-                    required
+                    value={values.cardCvv}
+                    onChange={set('cardCvv', (raw) => raw.replace(/\D/g, ''))}
+                    error={errors.cardCvv}
                   />
                 </div>
               </div>
             ) : null}
 
-            {method === 'netbanking' ? (
+            {values.method === 'netbanking' ? (
               <SelectField
                 label="Choose your bank"
                 icon={BankIcon}
                 options={BANKS}
-                value={bank}
-                onChange={setBank}
+                value={values.bank}
+                onChange={(bank) => setValues((current) => ({ ...current, bank }))}
               />
             ) : null}
 
-            {method === 'wallet' ? (
+            {values.method === 'wallet' ? (
               <SelectField
                 label="Choose a wallet"
                 icon={WalletIcon}
                 options={WALLETS}
-                value={wallet}
-                onChange={setWallet}
+                value={values.wallet}
+                onChange={(wallet) =>
+                  setValues((current) => ({ ...current, wallet }))
+                }
               />
             ) : null}
           </div>
 
-          <p className="mt-5 flex items-start gap-2 rounded-2xl bg-surface-muted px-4 py-3 text-xs text-ink-500">
-            <ShieldIcon className="mt-0.5 h-4 w-4 shrink-0" />
-            This is a front-end demo. No card, UPI or bank details are sent
-            anywhere — entering real payment details is neither needed nor
-            advised.
-          </p>
+          <div className="mt-5 rounded-2xl bg-surface-muted px-4 py-3 text-xs text-ink-500">
+            <p className="flex items-start gap-2 font-semibold text-ink-700">
+              <ShieldIcon className="mt-0.5 h-4 w-4 shrink-0" />
+              Test mode — no real money moves
+            </p>
+            <ul className="mt-2 list-disc space-y-1 pl-10">
+              {SANDBOX_NOTES.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+            <p className="mt-2 pl-6">
+              Card numbers and CVVs are checked and discarded; only the last
+              four digits are kept on the receipt.
+            </p>
+          </div>
         </section>
 
         <div className="lg:sticky lg:top-28 lg:self-start">
@@ -316,34 +554,49 @@ export function PaymentStep({ onPay, summary }: PaymentStepProps) {
             fullWidth
             size="lg"
             className="mt-4"
-            disabled={processing}
+            disabled={busy}
           >
-            {processing ? (
+            {busy ? (
               <>
                 <SpinnerIcon className="h-5 w-5 animate-spin" />
-                Processing&hellip;
+                {phase === 'holding' ? 'Holding your booking…' : 'Processing…'}
               </>
             ) : (
               <>
                 <LockIcon className="h-4 w-4" />
-                Pay securely
+                {chargesNothing
+                  ? `Confirm with ${METHOD_LABELS[values.method]}`
+                  : `Pay ${formatINR(amount)} securely`}
               </>
             )}
           </Button>
-          {processing ? (
+          {busy ? (
             <p role="status" className="mt-3 text-center text-xs text-ink-500">
-              Confirming your seats. Please do not close this page.
+              {phase === 'holding'
+                ? 'Reserving your selection. Please do not close this page.'
+                : 'Waiting for the payment to be approved.'}
             </p>
           ) : null}
 
           {failure ? (
-            <p
+            <div
               role="alert"
               className="mt-3 flex items-start gap-2 rounded-2xl bg-danger-surface px-4 py-3 text-sm text-danger-fg"
             >
               <InfoIcon className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{failure}</span>
-            </p>
+              <span>
+                {failure.message}
+                {failure.transactionRef ? (
+                  <span className="mt-1 block text-xs">
+                    Attempt{' '}
+                    <span className="font-mono font-semibold">
+                      {failure.transactionRef}
+                    </span>{' '}
+                    was not charged. You can try again, or pay another way.
+                  </span>
+                ) : null}
+              </span>
+            </div>
           ) : null}
         </div>
       </div>

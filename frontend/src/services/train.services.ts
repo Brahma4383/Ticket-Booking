@@ -1,5 +1,4 @@
 import { apiGet, apiPost } from '@/services/api'
-import type { PaymentMethodId } from '@/types/common.types'
 import type {
   AllottedPassenger,
   BoardingStation,
@@ -257,15 +256,13 @@ export interface ConfirmTrainBookingInput {
   boardingStation: BoardingStation
   passengers: TrainPassenger[]
   contact: TrainContact
-  /** The label shown on the payment step, e.g. `UPI` or `HDFC Bank`. */
-  paymentMethod: string
-  /** Which of the four methods that label belongs to. */
-  paymentMethodId: PaymentMethodId
   insured: boolean
 }
 
 /**
- * Takes payment, takes the berths, prepares the chart and issues the ticket.
+ * Makes the booking as `pending`, holding what it sells. Nothing is
+ * charged here: `payForBooking` in `payment.services` takes the money
+ * for the reference this returns and turns it `confirmed`.
  *
  * The passengers come back as `AllottedPassenger[]`: a confirmed class gets a
  * coach and berth, and an RAC or waitlisted one keeps a queue position
@@ -295,8 +292,6 @@ export function confirmTrainBooking(
         berth: passenger.berth,
       })),
       contact: input.contact,
-      paymentMethod: input.paymentMethod,
-      paymentMethodId: input.paymentMethodId,
       insured: input.insured,
     },
     signal,

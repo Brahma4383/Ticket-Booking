@@ -1,3 +1,5 @@
+import type { BookingPaymentState } from '@/types/common.types'
+
 export type CabStep = 'cabs' | 'details' | 'payment' | 'confirmation'
 
 export type CabCategoryId = 'hatchback' | 'sedan' | 'suv' | 'premium'
@@ -78,7 +80,7 @@ export interface CabFareBreakdown {
   payToDriver: number
 }
 
-export interface CabBookingConfirmation {
+export interface CabBookingConfirmation extends BookingPaymentState {
   /** Eight-character trip id. */
   bookingId: string
   bookedAt: string
@@ -88,5 +90,10 @@ export interface CabBookingConfirmation {
   details: CabTripDetails
   extras: CabExtraId[]
   fare: CabFareBreakdown
+  /**
+   * The instrument of the payment that went through - `rider@okhdfcbank`,
+   * `Visa •••• 4242`, a bank or a wallet - or `''` while nothing has.
+   * `payment` (from `BookingPaymentState`) carries the whole record.
+   */
   paymentMethod: string
 }

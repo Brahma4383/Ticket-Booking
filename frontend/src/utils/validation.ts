@@ -89,7 +89,7 @@ export function email(value: string): FieldError {
   const trimmed = value.trim()
   if (!trimmed) return 'Email address is required.'
   if (trimmed.length > 254 || !EMAIL_PATTERN.test(trimmed)) {
-    return 'Enter a valid email address, like you@example.com.'
+    return 'Enter a valid email address, like demo@gmail.com.'
   }
   return null
 }
@@ -235,4 +235,68 @@ function yearsBetween(from: string, to: string) {
   let years = ty - fy
   if (tm < fm || (tm === fm && td < fd)) years -= 1
   return years
+}
+
+/* ------------------------------------------------------------------
+   Payment instruments
+
+   Mirror `payments/serializers.py`: the same shapes are refused there, so
+   a form that passes here is not sent back with the same complaint.
+   ------------------------------------------------------------------ */
+
+/** `name@handle`, as the UPI apps print it. */
+const UPI_PATTERN = /^[a-z0-9][a-z0-9._-]+@[a-z][a-z0-9]+$/i
+
+export function upiId(value: string): FieldError {
+  const trimmed = value.trim()
+  if (!trimmed) return 'Enter your UPI ID.'
+  if (!UPI_PATTERN.test(trimmed)) {
+    return 'Enter a UPI ID such as yourname@okhdfcbank.'
+  }
+  return null
+}
+
+/** The check digit every card number carries. A typo fails it. */
+function luhn(digits: string) {
+  let total = 0
+  for (let index = 0; index < digits.length; index += 1) {
+    let digit = Number(digits[digits.length - 1 - index])
+    if (index % 2 === 1) {
+      digit *= 2
+      if (digit > 9) digit -= 9
+    }
+    total += digit
+  }
+  return total % 10 === 0
+}
+
+export function cardNumber(value: string): FieldError {
+  const digits = value.replace(/[\s-]/g, '')
+  if (!digits) return 'Enter the card number.'
+  if (!/^\d{12,19}$/.test(digits) || !luhn(digits)) {
+    return 'That card number is not valid. Check the digits.'
+  }
+  return null
+}
+
+export function cardName(value: string): FieldError {
+  return value.trim() ? null : 'Enter the name on the card.'
+}
+
+/** `MM/YY`, this month or later. */
+export function cardExpiry(value: string): FieldError {
+  const match = /^(0[1-9]|1[0-2])\/(\d{2})$/.exec(value.trim())
+  if (!match) return 'Enter the expiry as MM/YY.'
+
+  const month = Number(match[1])
+  const year = 2000 + Number(match[2])
+  const now = new Date()
+  if (year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth() + 1)) {
+    return 'That card has expired.'
+  }
+  return null
+}
+
+export function cardCvv(value: string): FieldError {
+  return /^\d{3,4}$/.test(value.trim()) ? null : 'The CVV is 3 or 4 digits.'
 }

@@ -1,5 +1,4 @@
 import { apiGet, apiPost } from '@/services/api'
-import type { PaymentMethodId } from '@/types/common.types'
 import type {
   BookingConfirmation,
   BusSearchQuery,
@@ -131,14 +130,12 @@ export interface ConfirmBookingInput {
   contact: ContactDetails
   boardingPoint: StopPoint
   droppingPoint: StopPoint
-  /** The label shown on the payment step, e.g. `UPI` or `HDFC Bank`. */
-  paymentMethod: string
-  /** Which of the four methods that label belongs to. */
-  paymentMethodId: PaymentMethodId
 }
 
 /**
- * Takes payment, reserves the seats and issues the ticket.
+ * Makes the booking as `pending`, holding what it sells. Nothing is
+ * charged here: `payForBooking` in `payment.services` takes the money
+ * for the reference this returns and turns it `confirmed`.
  *
  * Throws an `ApiError` with `code: 'seat_unavailable'` and status 409 when a
  * seat went while the traveller was filling in the form — the request was
@@ -163,8 +160,6 @@ export function confirmBooking(
       contact: input.contact,
       boardingPointId: input.boardingPoint.id,
       droppingPointId: input.droppingPoint.id,
-      paymentMethod: input.paymentMethod,
-      paymentMethodId: input.paymentMethodId,
     },
     signal,
   )

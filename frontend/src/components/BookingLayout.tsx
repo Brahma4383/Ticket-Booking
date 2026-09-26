@@ -179,8 +179,8 @@ export function BookingLayout({
           <div className="flex flex-col gap-2 text-xs text-ink-500 sm:flex-row sm:items-center sm:justify-between">
             <p className="flex items-center gap-2">
               <ShieldIcon className="h-4 w-4" />
-              Demo checkout &mdash; no payment is taken and no data leaves your
-              browser.
+              Test-mode checkout &mdash; payments go through a sandbox gateway
+              and no real money moves.
             </p>
             <p>
               Need help? Call{' '}

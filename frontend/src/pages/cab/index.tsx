@@ -1,10 +1,11 @@
 import { useEffect } from 'react'
 
 import { BookingLayout, PaymentStep } from '@/components'
-import { useStepHistory } from '@/hooks'
-import { confirmCab } from '@/services/cab.services'
+import { useCheckout, useStepHistory } from '@/hooks'
+import { calculateCabFare, confirmCab } from '@/services/cab.services'
+import type { ConfirmCabInput } from '@/services/cab.services'
 import type { CabSearchQuery } from '@/types/cab.types'
-import type { BookingStepMeta, PaymentMethodId } from '@/types/common.types'
+import type { BookingStepMeta } from '@/types/common.types'
 
 import { CabFareSummary } from './CabFareSummary'
 import { StepCabs } from './StepCabs'
@@ -54,25 +55,21 @@ export function CabBooking({
     window.scrollTo({ top: 0, behavior: 'auto' })
   }, [step])
 
-  const handlePay = async (
-    paymentMethod: string,
-    paymentMethodId: PaymentMethodId,
-  ) => {
-    if (!option) return
+  // What the booking is made from; its JSON is the checkout's key. The
+  // estimate is not sent: the server works it out from the addresses and the
+  // pickup time, because every part of it moves the fare.
+  const input: ConfirmCabInput | null = option
+    ? { option, query: state.query, details, extras }
+    : null
 
-    // The estimate is not sent: the server works it out from the addresses
-    // and the pickup time, because every part of it moves the fare.
-    const result = await confirmCab({
-      option,
-      query: state.query,
-      details,
-      extras,
-      paymentMethod,
-      paymentMethodId,
-    })
+  const checkout = useCheckout('cab', JSON.stringify(input), async () => {
+    if (!input) throw new Error('Choose a cab first.')
+    const booking = await confirmCab(input)
+    return { reference: booking.bookingId, holdExpiresAt: booking.holdExpiresAt }
+  })
 
-    actions.confirmed(result)
-  }
+  // Only the advance is taken online; the driver collects the balance.
+  const amount = calculateCabFare({ option, estimate, extraIds: extras }).payNow
 
   const summary = (
     <CabFareSummary option={option} estimate={estimate} extras={extras} />
@@ -110,7 +107,13 @@ export function CabBooking({
       ) : null}
 
       {step === 'payment' ? (
-        <PaymentStep onPay={handlePay} summary={summary} />
+        <PaymentStep
+          mode="cab"
+          checkout={checkout}
+          amount={amount}
+          onPaid={actions.confirmed}
+          summary={summary}
+        />
       ) : null}
 
       {step === 'confirmation' && state.confirmation ? (

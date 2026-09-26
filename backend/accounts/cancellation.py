@@ -12,6 +12,9 @@ cycle. Statuses are compared as the plain strings the schema stores rather
 than through any one module's `Booking` class, because all five define their
 own model over the same `booking` table.
 """
+from decimal import Decimal
+
+from django.db.models import Sum
 from django.utils import timezone
 
 from accounts.exceptions import CancellationNotAllowed
@@ -68,7 +71,26 @@ def mark_cancelled(booking):
     booking.save(update_fields=['status', 'cancelled_at'])
 
     # Only a payment that actually went through can be refunded; a pending or
-    # failed one is left as it is.
+    # failed one is left as it is. A booking cancelled before it was paid for
+    # - the payments module holds it as `pending` meanwhile - has nothing to
+    # refund, and this touches nothing.
     booking.payments.filter(status='success').update(status='refunded')
 
     return booking
+
+
+def refund_total(booking):
+    """
+    What is owed back after `mark_cancelled`: every payment it just flipped
+    to refunded, added up.
+
+    Read off the payment rows rather than the booking's total, because the
+    two differ: a cab takes only its advance online, and a booking that was
+    never paid for refunds nothing.
+    """
+    total = (
+        booking.payments.filter(status='refunded')
+        .aggregate(total=Sum('amount'))['total']
+    )
+    # Quantised because SQLite hands a SUM back without the column's scale.
+    return Decimal(total if total is not None else 0).quantize(Decimal('0.01'))

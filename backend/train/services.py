@@ -466,7 +466,7 @@ def _create_booking_row(data, fare):
                     reference=generate_pnr(),
                     mode=Booking.TRAIN,
                     user_id=data.get('userId'),
-                    status=Booking.CONFIRMED,
+                    status=Booking.PENDING,
                     contact_email=data['contact']['email'],
                     contact_phone=data['contact']['phone'],
                     total_amount=fare['total'],
@@ -481,8 +481,13 @@ def _create_booking_row(data, fare):
 @transaction.atomic
 def create_booking(data, rng=None):
     """
-    Take payment, take the availability, prepare the chart, issue the ticket -
-    one transaction.
+    Write the booking as `pending`, holding whatever it sells - one transaction.
+
+    No money is taken here. The payments module does that afterwards
+    (`POST /api/payments/<mode>/<reference>/`) and moves the booking to
+    `confirmed` when a payment goes through; if none does within the
+    payment window it calls `release_booking` below and closes the
+    booking as `failed`.
 
     Returns the objects the confirmation needs. Anything raised in here rolls
     the whole thing back, so a failed booking never leaves a class short of
@@ -592,15 +597,10 @@ def create_booking(data, rng=None):
         ] if line is not None
     ])
 
-    payment = Payment.objects.create(
-        booking=booking,
-        method=data['paymentMethodId'],
-        instrument=data['paymentMethod'],
-        amount=fare['total'],
-        status=Payment.SUCCESS,
-        transaction_ref=f'TXN{secrets.token_hex(8).upper()}',
-        paid_at=timezone.now(),
-    )
+    # No payment row yet. The booking is held as `pending`; the payments
+    # module takes the money (`POST /api/payments/<mode>/<reference>/`),
+    # writes the payment row and moves the booking to `confirmed`.
+    payment = None
 
     # The trip and the class option go onto the ticket as they were sold, so
     # both are built before `_take_availability` moves the row on - the
@@ -727,15 +727,56 @@ def _release_availability(availability, passenger_count):
     ])
 
 
+# ---------------------------------------------------------------------------
+# Hooks for the payments module
+#
+# `payments.services` calls these by name on whichever module sold a booking,
+# so every travel module exposes the same two. They are also what
+# `cancel_booking` below uses, so an expired hold and a cancellation agree
+# about what "back on sale" means.
+# ---------------------------------------------------------------------------
+
+def amount_due(booking_id):
+    """What the payments module charges for a train ticket: the whole fare."""
+    return Booking.objects.values_list('total_amount', flat=True).get(pk=booking_id)
+
+
+def release_booking(booking_id):
+    """
+    Return a booking's berths to the class it sold from.
+
+    The passenger rows stay: they are the chart, and a ticket that was never
+    paid for or was cancelled still has to show who was on it. What moves is
+    the availability row, which is where a berth is actually held. Runs
+    inside the caller's transaction, with that row locked.
+    """
+    train_booking = (
+        TrainBooking.objects
+        .select_related('train', 'train_class', 'quota')
+        .filter(pk=booking_id)
+        .first()
+    )
+    if train_booking is None:
+        return
+
+    availability = (
+        TrainAvailability.objects
+        .select_for_update(of=('self',))
+        .filter(
+            train=train_booking.train, train_class=train_booking.train_class,
+            quota=train_booking.quota, travel_date=train_booking.travel_date,
+        )
+        .first()
+    )
+    # The date's row can be gone once the seeded window rolls on; there is
+    # nothing to give back to then.
+    if availability is not None:
+        _release_availability(availability, train_booking.passengers.count())
+
+
 @transaction.atomic
 def cancel_booking(user_id, reference):
-    """
-    Cancel a train ticket and return its berths to the class it sold from.
-
-    The passenger rows stay: they are the chart, and a cancelled ticket still
-    has to show who was on it. What moves is the availability row, which is
-    where a berth is actually held.
-    """
+    """Cancel a train ticket and return its berths to the class it sold from."""
     train_booking = (
         TrainBooking.objects
         .select_related(
@@ -750,12 +791,7 @@ def cancel_booking(user_id, reference):
 
     ensure_cancellable(train_booking.booking, train_booking.travel_date)
 
-    availability = get_availability(
-        train_booking.train, train_booking.train_class,
-        train_booking.quota, train_booking.travel_date, lock=True,
-    )
-    _release_availability(availability, train_booking.passengers.count())
-
+    release_booking(train_booking.pk)
     mark_cancelled(train_booking.booking)
 
     return train_booking

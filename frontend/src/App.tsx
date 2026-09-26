@@ -23,6 +23,7 @@ import { Account } from '@/pages/account'
 import { Careers } from '@/pages/careers'
 import { Newsroom } from '@/pages/newsroom'
 import { Legal } from '@/pages/legal'
+import { ResetPassword } from '@/pages/reset-password'
 import { Home } from '@/pages/Home'
 import type { SearchSubmission } from '@/pages/Home/SearchPanel'
 import { BusBooking } from '@/pages/bus'
@@ -42,6 +43,7 @@ import { toInputDate } from '@/utils'
      /                      home  (?mode=train selects a search tab,
                                    #offers scrolls to a section)
      /account               the traveller's bookings
+     /reset-password        ?uid&token, from the emailed reset link
      /about  /careers
      /newsroom  /legal      standalone pages  (#story, #privacy, ... scroll
                                                 to one of their sections)
@@ -175,6 +177,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<HomeRoute />} />
             <Route path="/account" element={<AccountRoute />} />
+            <Route path="/reset-password" element={<ResetPasswordRoute />} />
 
             <Route path="/about" element={<AboutRoute />} />
             <Route path="/careers" element={<CareersRoute />} />
@@ -255,6 +258,27 @@ function AccountRoute() {
   const navigateTarget = useNavigateTarget()
 
   return <Account onExit={() => navigate('/')} onNavigate={navigateTarget} />
+}
+
+/**
+ * Where the emailed reset link lands. Both halves of the link are read from
+ * the query string; the page checks them with the API before asking for a
+ * new password.
+ */
+function ResetPasswordRoute() {
+  const [params] = useSearchParams()
+  const navigate = useNavigate()
+  const navigateTarget = useNavigateTarget()
+
+  return (
+    <ResetPassword
+      uid={params.get('uid') ?? ''}
+      token={params.get('token') ?? ''}
+      onNavigate={navigateTarget}
+      onOpenAccount={() => navigate('/account')}
+      onGoHome={() => navigate('/')}
+    />
+  )
 }
 
 function AboutRoute() {

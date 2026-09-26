@@ -217,10 +217,30 @@ def _payment(context):
             'its own, usually within 3–5 working days, and no ticket means no '
             'charge was captured.\n\n'
             'Check your account page first — if the booking is listed as '
-            'confirmed, the payment did go through and the ticket is there.'
+            'confirmed, the payment did go through and the ticket is there. '
+            'If it says awaiting payment, it is still held for you for 15 '
+            'minutes from booking: open it and choose Complete payment. '
+            'Every attempt, declined ones included, is listed under Payments '
+            'with its transaction reference.'
         ),
         quick_replies=('Where is my booking?', 'Talk to a person'),
         action=ACTION_ACCOUNT,
+    )
+
+
+def _password(context):
+    return Answer(
+        text=(
+            'You can reset it yourself. Open Log in, choose "Forgot password?" '
+            'and enter the email or mobile number on your account — we email '
+            'a link to the address on it. The link works once, for an hour, '
+            'and choosing a new password signs you in.\n\n'
+            'No email after a few minutes? Check spam, then ask for another. '
+            'If you no longer have that inbox, talk to a person and we will '
+            'verify you another way.'
+        ),
+        quick_replies=('Talk to a person', 'Where is my booking?'),
+        action=ACTION_CONTACT,
     )
 
 
@@ -341,6 +361,18 @@ INTENTS = (
             'transaction fail',
         ),
         respond=_payment,
+    ),
+    Intent(
+        id='password',
+        keywords=(
+            'forgot password', 'forget password', 'forgot my password',
+            'forgotten password', 'reset password', 'password reset',
+            'reset my password', 'change password', 'change my password',
+            'password bhul', 'password bhool', 'password yaad nahi',
+            'cannot log in', "can't log in", 'cant login', 'cannot login',
+            'unable to login', 'login nahi',
+        ),
+        respond=_password,
     ),
     Intent(
         id='modify',

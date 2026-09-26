@@ -1,9 +1,13 @@
 import { useEffect } from 'react'
 
 import { BookingLayout, PaymentStep } from '@/components'
-import { useStepHistory } from '@/hooks'
-import { confirmFlightBooking } from '@/services/plane.services'
-import type { BookingStepMeta, PaymentMethodId } from '@/types/common.types'
+import { useCheckout, useStepHistory } from '@/hooks'
+import {
+  calculatePlaneFare,
+  confirmFlightBooking,
+} from '@/services/plane.services'
+import type { ConfirmFlightBookingInput } from '@/services/plane.services'
+import type { BookingStepMeta } from '@/types/common.types'
 import type { PlaneSearchQuery } from '@/types/plane.types'
 
 import { PlaneFareSummary } from './PlaneFareSummary'
@@ -58,28 +62,38 @@ export function PlaneBooking({
     window.scrollTo({ top: 0, behavior: 'auto' })
   }, [step])
 
-  const handlePay = async (
-    paymentMethod: string,
-    paymentMethodId: PaymentMethodId,
-  ) => {
-    if (!trip || !fareBrand) return
+  // What the booking is made from; its JSON is the checkout's key, so a
+  // change after a declined payment lets the held seats go and books anew.
+  const input: ConfirmFlightBookingInput | null =
+    trip && fareBrand
+      ? {
+          trip,
+          query: state.query,
+          fareBrand,
+          travellers,
+          seatByTraveller: Object.fromEntries(
+            Object.entries(state.seatByTraveller).map(([id, seat]) => [
+              id,
+              seat.id,
+            ]),
+          ),
+          addOns,
+          contact,
+        }
+      : null
 
-    const result = await confirmFlightBooking({
-      trip,
-      query: state.query,
-      fareBrand,
-      travellers,
-      seatByTraveller: Object.fromEntries(
-        Object.entries(state.seatByTraveller).map(([id, seat]) => [id, seat.id]),
-      ),
-      addOns,
-      contact,
-      paymentMethod,
-      paymentMethodId,
-    })
+  const checkout = useCheckout('plane', JSON.stringify(input), async () => {
+    if (!input) throw new Error('Choose a flight and fare first.')
+    const booking = await confirmFlightBooking(input)
+    return { reference: booking.reference, holdExpiresAt: booking.holdExpiresAt }
+  })
 
-    actions.confirmed(result)
-  }
+  const amount = calculatePlaneFare({
+    fareBrand,
+    travellerCount: travellers.length,
+    seatTotal,
+    addOnIds: addOns,
+  }).total
 
   const summary = (
     <PlaneFareSummary
@@ -144,7 +158,13 @@ export function PlaneBooking({
       ) : null}
 
       {step === 'payment' ? (
-        <PaymentStep onPay={handlePay} summary={summary} />
+        <PaymentStep
+          mode="plane"
+          checkout={checkout}
+          amount={amount}
+          onPaid={actions.confirmed}
+          summary={summary}
+        />
       ) : null}
 
       {step === 'confirmation' && state.confirmation ? (

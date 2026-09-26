@@ -20,7 +20,10 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
-from plane.models import FlightAddon, FlightTraveller, Payment
+from payments.serializers import serialise_payment
+from payments.services import hold_expires_at
+
+from plane.models import FlightAddon, FlightTraveller
 
 
 # ---------------------------------------------------------------------------
@@ -273,12 +276,17 @@ def serialise_confirmation(
             'convenienceFee': money(flight_booking.convenience_fee),
             'total': money(booking.total_amount),
         },
-        # A ticket with no payment row should not exist, but a missing one
-        # must not stop the ticket rendering.
+        # Empty until the payments module has taken a payment that went
+        # through: a declined attempt does not put its instrument on the
+        # ticket. `payment` below carries every state.
         'paymentMethod': (
             (payment.instrument or payment.get_method_display())
-            if payment else ''
+            if payment is not None and payment.status == 'success' else ''
         ),
+        'payment': serialise_payment(payment, booking.currency),
+        # While the booking is pending: when its hold on the inventory runs
+        # out. Null once it is paid for or closed.
+        'holdExpiresAt': hold_expires_at(booking),
     }
 
 
@@ -414,16 +422,6 @@ class BookingCreateSerializer(serializers.Serializer):
         allow_empty=True, max_length=len(FlightAddon.CODES), default=list,
     )
     contact = ContactSerializer()
-    # The label shown on the payment step: 'UPI', 'Card', or the bank or
-    # wallet name. Stored as the payment instrument.
-    paymentMethod = serializers.CharField(max_length=100)
-    # Which of the four methods that label belongs to. The payment step knows
-    # this and should send it; until it does, the default keeps the column
-    # inside its CHECK constraint.
-    paymentMethodId = serializers.ChoiceField(
-        choices=[choice for choice, _ in Payment.METHODS],
-        required=False, default=Payment.UPI,
-    )
 
     def validate(self, attrs):
         travellers = attrs['travellers']

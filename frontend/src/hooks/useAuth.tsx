@@ -7,6 +7,7 @@ import {
   login as loginRequest,
   readToken,
   register as registerRequest,
+  resetPassword as resetPasswordRequest,
   writeToken,
 } from '@/services/auth.services'
 import type { RegisterInput } from '@/services/auth.services'
@@ -32,6 +33,11 @@ interface AuthContextValue {
   signOut: () => void
   login: (identifier: string, password: string) => Promise<void>
   register: (input: RegisterInput) => Promise<void>
+  /**
+   * Set a new password from an emailed reset link, and sign in with it.
+   * Throws the `ApiError` the reset endpoint answers with.
+   */
+  resetPassword: (uid: string, token: string, password: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -122,6 +128,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [openDialog],
   )
 
+  // No dialog to close: the reset page is a page of its own. Whoever was
+  // signed in on this browser before is replaced by the account that owns
+  // the link.
+  const resetPassword = useCallback(
+    async (uid: string, token: string, password: string) => {
+      const session = await resetPasswordRequest(uid, token, password)
+      writeToken(session.token)
+      setUser(session.user)
+    },
+    [],
+  )
+
   const signOut = useCallback(() => {
     // Nothing to tell the server: the token is signed rather than stored, so
     // signing out is dropping it.
@@ -138,8 +156,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut,
       login,
       register,
+      resetPassword,
     }),
-    [user, restoring, openDialog, signOut, login, register],
+    [user, restoring, openDialog, signOut, login, register, resetPassword],
   )
 
   const dialog = useMemo<AuthDialogValue>(

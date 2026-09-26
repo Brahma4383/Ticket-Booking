@@ -32,6 +32,8 @@ interface TicketProps {
   onBack: () => void
   /** Out to the home page, where a new search starts. */
   onGoHome: () => void
+  /** On to the payment form, for a ticket still waiting to be paid for. */
+  onCompletePayment: () => void
 }
 
 /**
@@ -111,10 +113,12 @@ export function Ticket({
   reference,
   onBack,
   onGoHome,
+  onCompletePayment,
 }: TicketProps & { mode: BookingMode }) {
   // `onBookAnother` and `onGoHome` both leave for the home page: a booked
   // ticket has no next step inside the account, and searching starts there.
-  const exits = { onBookAnother: onGoHome, onGoHome }
+  // `onCompletePayment` is only offered by a ticket that is still pending.
+  const exits = { onBookAnother: onGoHome, onGoHome, onCompletePayment }
 
   switch (mode) {
     case 'bus':

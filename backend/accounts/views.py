@@ -6,33 +6,58 @@ HTTP layer for the accounts module.
     GET  /api/auth/me/          who the token belongs to
     GET  /api/auth/me/bookings/ every ticket this account holds
     POST /api/auth/me/bookings/<mode>/<reference>/cancel/  cancel one
+    POST /api/auth/password/forgot/        email a reset link
+    POST /api/auth/password/reset/check/   is this reset link still good?
+    POST /api/auth/password/reset/         choose a new password, and sign in
 
 There is no logout endpoint. The token is signed rather than stored, so
 there is nothing on the server to delete - signing out is the client dropping
 it. What the server *can* do is invalidate every token an account holds, and
 that happens when its password changes.
 """
+import hashlib
+import math
+
 from django.contrib.auth.hashers import check_password, make_password
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
 from accounts.authentication import issue_token, token_lifetime_seconds
+from accounts.cancellation import refund_total
 from accounts.exceptions import (
     AccountExists,
     AccountNotFound,
     InvalidCredentials,
+    InvalidResetLink,
+    TooManyResetRequests,
     UnknownBookingMode,
     api_exception_handler,
 )
 from accounts.models import AppUser
+from accounts.password_reset import (
+    find_account,
+    first_name,
+    link_lifetime_minutes,
+    mask_email,
+    reset_tokens,
+    send_password_changed_email,
+    send_reset_email,
+    user_for_link,
+)
 from accounts.serializers import (
+    ForgotPasswordSerializer,
     LoginSerializer,
     RegisterSerializer,
+    ResetLinkSerializer,
+    ResetPasswordSerializer,
     serialise_session,
     serialise_user,
 )
@@ -208,6 +233,13 @@ class MyBookingsView(AccountsAPIView):
         )
 
     def get(self, request):
+        # A booking is `pending` from the moment its inventory is held until
+        # it is paid for. Close any of this account's whose payment window
+        # has run out first, so the list never shows a hold that is already
+        # gone. Imported here for the same reason `_sources` imports lazily.
+        from payments.services import expire_stale
+        expire_stale(request.user.pk)
+
         bookings = [
             serializers.serialise_booking_summary(row)
             for services, serializers in self._sources()
@@ -271,6 +303,186 @@ class CancelBookingView(AccountsAPIView):
 
         return Response({
             'booking': serialisers.serialise_booking_summary(row),
-            'refundAmount': str(row.booking.total_amount),
+            # What was actually paid, which is not always the total: a cab
+            # took only its advance, and an unpaid booking took nothing.
+            'refundAmount': str(refund_total(row.booking)),
             'currency': row.booking.currency,
         })
+
+
+# ---------------------------------------------------------------------------
+# Forgotten passwords
+#
+# Three calls, one per screen: the request form in the sign-in dialog, the
+# reset page checking its link as it opens, and that page's form. How the link
+# is made and why it needs no table is in accounts/password_reset.py.
+# ---------------------------------------------------------------------------
+
+class _ResetThrottle(SimpleRateThrottle):
+    """
+    Counted per client address whether or not a token was sent.
+
+    DRF's AnonRateThrottle skips signed-in requests; a reset is something a
+    signed-out traveller does, but nothing stops a script from sending a
+    token along to slip past it.
+    """
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {
+            'scope': self.scope, 'ident': self.get_ident(request),
+        }
+
+
+class PasswordResetThrottle(_ResetThrottle):
+    """Reset mails one address may ask for: `PASSWORD_RESET_RATE_LIMIT`."""
+
+    scope = 'password_reset'
+
+
+class PasswordResetTargetThrottle(SimpleRateThrottle):
+    """
+    Reset mails one account may be sent, whoever asks.
+
+    The per-address limit alone would let a handful of machines fill a
+    stranger's inbox. Keyed on a hash of the identifier, so the cache never
+    holds the email address or phone number itself.
+    """
+
+    scope = 'password_reset_target'
+
+    def get_cache_key(self, request, view):
+        raw = str(request.data.get('identifier', '')).strip().lower()
+        if not raw:
+            return None
+        if '@' not in raw:
+            raw = ''.join(ch for ch in raw if ch.isdigit())[-10:]
+        digest = hashlib.sha256(raw.encode()).hexdigest()
+        return self.cache_format % {'scope': self.scope, 'ident': digest}
+
+
+class PasswordResetConfirmThrottle(_ResetThrottle):
+    """Link checks and new passwords one address may submit."""
+
+    scope = 'password_reset_confirm'
+
+
+class ResetAPIView(AccountsAPIView):
+    """Base for the three reset views: open to anyone, rate limited."""
+
+    def throttled(self, request, wait):
+        minutes = max(1, math.ceil((wait or 60) / 60))
+        raise TooManyResetRequests(
+            'Too many attempts from here. Please try again in '
+            f'{minutes} minute{"s" if minutes != 1 else ""}.',
+            detail={'retryAfterSeconds': math.ceil(wait or 60)},
+        )
+
+
+class ForgotPasswordView(ResetAPIView):
+    """
+    Email a reset link to the account behind an email or mobile number.
+
+    Answers **202 with the same body whether or not an account exists**, and
+    sends nothing when none does. The sign-in box does say "no account with
+    those details" - see AccountNotFound for that trade - but a reset request
+    is the classic place to probe for addresses, so this one does not add a
+    second way in. A mobile number finds the account and the link goes to the
+    email on it: there is no SMS gateway.
+
+    A mail server failure is logged and answered the same way too, for the
+    same reason - see `password_reset._send`.
+    """
+
+    throttle_classes = [PasswordResetThrottle, PasswordResetTargetThrottle]
+
+    def post(self, request):
+        payload = ForgotPasswordSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        user = find_account(payload.validated_data['identifier'])
+        if user is not None:
+            send_reset_email(user)
+
+        return Response(
+            {'sent': True, 'expiresInMinutes': link_lifetime_minutes()},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class ResetPasswordCheckView(ResetAPIView):
+    """
+    Whether a reset link can still be used, asked as the reset page opens.
+
+    So a traveller with an old link is told before they have typed a new
+    password twice, not after. Answers with a masked email - enough to tell
+    which account it is, since someone holding the link has the inbox anyway.
+    """
+
+    throttle_classes = [PasswordResetConfirmThrottle]
+
+    def post(self, request):
+        payload = ResetLinkSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data
+
+        user = user_for_link(data['uid'], data['token'])
+        if user is None:
+            raise InvalidResetLink()
+
+        return Response({
+            'valid': True,
+            'email': mask_email(user.email),
+            'firstName': first_name(user),
+        })
+
+
+class ResetPasswordView(ResetAPIView):
+    """
+    Set a new password from a reset link, and sign in with it.
+
+    Signing in is the point of the exercise - the traveller was on their way
+    somewhere when they found they could not - and holding the link already
+    proves as much as a password would. The new hash retires the link and
+    every token issued before it, so each other device is signed out.
+
+    The link is checked a second time under a row lock, so two tabs submitting
+    the same link cannot both succeed.
+    """
+
+    throttle_classes = [PasswordResetConfirmThrottle]
+
+    def post(self, request):
+        payload = ResetPasswordSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data
+
+        user = user_for_link(data['uid'], data['token'])
+        if user is None:
+            raise InvalidResetLink()
+
+        # Django's own validators, now that the account is known - including
+        # the one that refuses a password too close to the email address.
+        try:
+            validate_password(data['password'], user=user)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError({'password': list(error.messages)})
+
+        if check_password(data['password'], user.password_hash):
+            raise serializers.ValidationError({
+                'password': ['That is your current password. Choose a new one.'],
+            })
+
+        with transaction.atomic():
+            user = AppUser.objects.select_for_update().get(pk=user.pk)
+            if not reset_tokens.check_token(user, data['token']):
+                raise InvalidResetLink()
+
+            user.password_hash = make_password(data['password'])
+            user.last_login_at = timezone.now()
+            user.save(update_fields=['password_hash', 'last_login_at'])
+
+        send_password_changed_email(user)
+
+        return Response(
+            serialise_session(user, issue_token(user), token_lifetime_seconds())
+        )

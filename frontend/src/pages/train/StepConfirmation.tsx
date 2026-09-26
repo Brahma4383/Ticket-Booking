@@ -1,8 +1,7 @@
-import { Button } from '@/components'
+import { Button, TicketPayment, TicketStatusHeader } from '@/components'
 import { BRAND } from '@/constants'
 import {
   ArrowRightIcon,
-  CheckIcon,
   InfoIcon,
   MapPinIcon,
   PrinterIcon,
@@ -34,31 +33,28 @@ export function StepConfirmation({
   booking,
   onBookAnother,
   onGoHome,
+  onCompletePayment,
 }: {
   booking: TrainBookingConfirmation
   onBookAnother: () => void
   onGoHome: () => void
+  /** Offered on a ticket that is still waiting to be paid for. */
+  onCompletePayment?: () => void
 }) {
   const { trip, query, classOption, passengers, fare, boardingStation } = booking
   const anyUnconfirmed = passengers.some((p) => !p.status.startsWith('CNF'))
 
   return (
     <div className="mx-auto max-w-3xl">
-      {/* Screen state, not ticket content: a printed ticket does not
-          need congratulating, and this is half a page of it. */}
-      <div className="text-center print:hidden">
-        <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-          <CheckIcon className="h-7 w-7" />
-        </span>
-        <h1 className="mt-4 text-2xl sm:text-3xl">Your ticket is booked</h1>
-        <p className="mt-2 text-sm text-ink-500">
-          A copy has been sent to{' '}
-          <span className="font-semibold text-ink-700">
-            {booking.contact.email}
-          </span>
-          .
-        </p>
-      </div>
+      {/* Screen state, not ticket content: what the booking is waiting
+          for, or that it is done. Hidden when printing. */}
+      <TicketStatusHeader
+        status={booking.status}
+        confirmedTitle="Your ticket is booked"
+        email={booking.contact.email}
+        holdExpiresAt={booking.holdExpiresAt}
+        onCompletePayment={onCompletePayment}
+      />
 
       <article className="mt-8 overflow-hidden rounded-3xl bg-surface shadow-lift ring-1 ring-hairline">
         <header className="flex flex-wrap items-center justify-between gap-4 bg-gradient-to-br from-brand-700 via-brand-800 to-brand-900 px-6 py-5 text-white">
@@ -110,9 +106,14 @@ export function StepConfirmation({
           <dl className="mt-6 grid gap-5 border-t border-hairline pt-6 sm:grid-cols-2 lg:grid-cols-4">
             <Detail label="Class" value={classOption.code} />
             <Detail label="Quota" value={QUOTA_LABELS[booking.quota]} />
-            <Detail label="Paid with" value={booking.paymentMethod} />
-            <Detail label="Total paid" value={formatINR(fare.total)} />
+            <Detail label="Paid with" value={booking.paymentMethod || 'Not paid yet'} />
+            <Detail
+              label={booking.status === 'pending' ? 'Total due' : 'Total paid'}
+              value={formatINR(fare.total)}
+            />
           </dl>
+
+          <TicketPayment payment={booking.payment} />
 
           <div className="mt-6 flex gap-3 border-t border-hairline pt-6">
             <MapPinIcon className="mt-0.5 h-5 w-5 shrink-0 text-ink-400" />

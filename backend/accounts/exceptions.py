@@ -102,6 +102,37 @@ class CancellationNotAllowed(AccountsAPIError):
     default_detail = 'That booking can no longer be cancelled.'
 
 
+class InvalidResetLink(AccountsAPIError):
+    """
+    A password reset link that cannot be used: expired, already used, for a
+    deactivated account, or never issued by us.
+
+    One answer for all of them, deliberately. Whichever it was, the way on is
+    the same - ask for a new link - and naming the reason would only help
+    somebody forging them.
+    """
+
+    default_code = 'invalid_reset_link'
+    default_detail = (
+        'This reset link has expired or has already been used. Ask for a new '
+        'one from the sign-in screen.'
+    )
+
+
+class TooManyResetRequests(AccountsAPIError):
+    """
+    The reset endpoints' own rate limit, in words a traveller can act on.
+
+    DRF's stock 429 reads "Expected available in 3412 seconds"; this says
+    minutes, and carries the wait in `detail.retryAfterSeconds` for a client
+    that wants to count down.
+    """
+
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    default_code = 'too_many_requests'
+    default_detail = 'Too many attempts. Please wait a while and try again.'
+
+
 class UnknownBookingMode(AccountsAPIError):
     """The URL named something this app does not book."""
 

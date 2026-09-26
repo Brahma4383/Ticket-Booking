@@ -27,3 +27,9 @@ DATABASES = {
 }
 
 PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
+
+# The expired-hold sweep that rides on API requests (payments/middleware.py)
+# is off by default here: most suites build only the tables they need, and a
+# sweep with no `booking` table would log an error on every request. The
+# payments suite turns it on for the tests that are about it.
+PAYMENT_SWEEP_INTERVAL_SECONDS = 10 ** 9
