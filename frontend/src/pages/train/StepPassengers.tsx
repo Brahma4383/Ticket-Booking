@@ -270,7 +270,7 @@ export function StepPassengers({
                 onChange={(event) =>
                   onContactChange({ email: event.target.value })
                 }
-                placeholder="you@example.com"
+                placeholder="demo@gmail.com"
                 autoComplete="email"
                 error={errors['contact.email']}
               />

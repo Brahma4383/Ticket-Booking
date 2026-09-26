@@ -10,7 +10,7 @@ import { cn, formatDateWithYear } from '@/utils'
 const ALL = 'All updates'
 
 /** Where press enquiries go. Separate from the traveller support address. */
-const PRESS_EMAIL = 'press@suryabooker.in'
+const PRESS_EMAIL = 'demo@gmail.com'
 
 export function Newsroom({
   section,

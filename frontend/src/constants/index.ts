@@ -47,7 +47,7 @@ export const BRAND = {
   name: 'SuryaBooker',
   tagline: 'Every journey, one booking.',
   supportPhone: '91 90210 24383',
-  supportEmail: 'help@suryabooker.in',
+  supportEmail: 'demo@gmail.com',
 } as const
 
 export const NAV_LINKS: NavLink[] = [

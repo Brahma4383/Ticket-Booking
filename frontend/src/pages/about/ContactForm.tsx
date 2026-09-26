@@ -146,7 +146,7 @@ export function ContactForm() {
           name="email"
           type="email"
           autoComplete="email"
-          placeholder="you@example.com"
+          placeholder="demo@gmail.com"
           icon={MailIcon}
           value={values.email}
           error={errors.email}

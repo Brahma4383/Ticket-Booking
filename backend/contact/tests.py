@@ -15,7 +15,7 @@ from contact.views import ContactThrottle, ContactView
 
 VALID = {
     'name': 'Asha Menon',
-    'email': 'asha@example.com',
+    'email': 'demo@gmail.com',
     'phone': '9876543210',
     'topic': 'Booking help',
     'message': 'My bus was cancelled and I would like to know about the refund.',
@@ -24,8 +24,8 @@ VALID = {
 
 @override_settings(
     EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
-    CONTACT_INBOX='owner@example.com',
-    DEFAULT_FROM_EMAIL='no-reply@example.com',
+    CONTACT_INBOX='demo@gmail.com',
+    DEFAULT_FROM_EMAIL='demo@gmail.com',
 )
 class ContactFormTests(TestCase):
     """Everything but the rate limit, which has its own class below."""
@@ -55,10 +55,10 @@ class ContactFormTests(TestCase):
         self.assertIs(response.json()['sent'], True)
 
         (sent,) = mail.outbox
-        self.assertEqual(sent.to, ['owner@example.com'])
+        self.assertEqual(sent.to, ['demo@gmail.com'])
         # Our own mailbox sends it; hitting reply answers the traveller.
-        self.assertEqual(sent.from_email, 'no-reply@example.com')
-        self.assertEqual(sent.reply_to, ['asha@example.com'])
+        self.assertEqual(sent.from_email, 'demo@gmail.com')
+        self.assertEqual(sent.reply_to, ['demo@gmail.com'])
         self.assertIn('Booking help', sent.subject)
         self.assertIn('Asha Menon', sent.subject)
         self.assertIn('My bus was cancelled', sent.body)

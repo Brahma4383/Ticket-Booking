@@ -18,7 +18,7 @@ const ALL = 'All teams'
 /** Where an application goes, with the role reference already filled in. */
 function applyHref(id: string, title: string) {
   const subject = encodeURIComponent(`${id} — ${title}`)
-  return `mailto:careers@suryabooker.in?subject=${subject}`
+  return `mailto:demo@gmail.com?subject=${subject}`
 }
 
 export function Careers({
@@ -95,11 +95,11 @@ export function Careers({
                 <ArrowRightIcon className="h-4 w-4" />
               </a>
               <a
-                href="mailto:careers@suryabooker.in"
+                href="mailto:demo@gmail.com"
                 className="inline-flex items-center gap-2 rounded-full bg-surface px-5 py-2.5 text-sm font-semibold text-ink-700 ring-1 ring-hairline transition-colors hover:bg-surface-muted"
               >
                 <MailIcon className="h-4 w-4" />
-                careers@suryabooker.in
+                demo@gmail.com
               </a>
             </div>
           </Container>
@@ -243,10 +243,10 @@ export function Careers({
             <p className="mt-8 text-sm text-ink-500">
               Nothing here that fits? Write to{' '}
               <a
-                href="mailto:careers@suryabooker.in"
+                href="mailto:demo@gmail.com"
                 className="font-semibold text-brand-fg underline-offset-4 hover:underline"
               >
-                careers@suryabooker.in
+                demo@gmail.com
               </a>{' '}
               with what you would want to work on. We keep good applications on
               file for a year.
@@ -289,7 +289,7 @@ export function Careers({
                 posting do not match yours.
               </p>
               <a
-                href="mailto:careers@suryabooker.in"
+                href="mailto:demo@gmail.com"
                 className="mt-7 inline-flex items-center gap-2 rounded-full bg-accent-500 px-6 py-3 text-sm font-semibold text-ink-900 transition-colors hover:bg-accent-400"
               >
                 <MailIcon className="h-4 w-4" />
